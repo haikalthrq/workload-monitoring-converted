@@ -241,8 +241,8 @@ PORT=5000
 # Untuk MongoDB Local:
 MONGODB_URI=mongodb://localhost:27017/workload_monitoring
 
-# Atau untuk MongoDB Atlas:
-MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/workload_monitoring
+# Atau untuk MongoDB Atlas (ganti <username>, <password>, dan <cluster> dengan milik Anda):
+MONGODB_URI=mongodb+srv://<username>:<password>@<cluster>.mongodb.net/workload_monitoring
 
 JWT_SECRET=rahasia_super_kuat_ganti_ini_nanti
 JWT_EXPIRE=7d
