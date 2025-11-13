@@ -81,13 +81,16 @@ export default function CreateJob() {
         ...formData,
         transport_allowance: Number(formData.transport_allowance),
         estimated_honorarium: Number(formData.estimated_honorarium),
+        honor_document_basis: Number(formData.honor_document_basis || 0),
       };
 
       const response = await jobService.create(jobData);
       
       // Redirect to select employee page
-      navigate(`/teamlead/jobs/${response.job._id}/select-employee`);
+      // Backend returns { success, message, data: job }
+      navigate(`/teamlead/jobs/${response.data._id}/select-employee`);
     } catch (error) {
+      console.error('Error creating job:', error);
       setErrors({
         general: error.response?.data?.message || 'Gagal membuat pekerjaan'
       });

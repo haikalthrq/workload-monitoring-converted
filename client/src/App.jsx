@@ -9,6 +9,7 @@ import Dashboard from './pages/Dashboard';
 import TeamLeadDashboard from './pages/teamlead/Dashboard';
 import CreateJob from './pages/teamlead/CreateJob';
 import SelectEmployee from './pages/teamlead/SelectEmployee';
+import CreateEmployee from './pages/teamlead/CreateEmployee';
 import FinalizeJob from './pages/teamlead/FinalizeJob';
 import SupervisorDashboard from './pages/supervisor/Dashboard';
 import EmployeeDetail from './pages/supervisor/EmployeeDetail';
@@ -54,6 +55,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <SelectEmployee />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/teamlead/employees/create" 
+            element={
+              <ProtectedRoute>
+                <CreateEmployee />
               </ProtectedRoute>
             } 
           />

@@ -7,12 +7,17 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Loading } from '../../components/ui/Loading';
 import { employeeService } from '../../services/employeeService';
+import { jobService } from '../../services/jobService';
 
 export default function SupervisorDashboard() {
   const [employees, setEmployees] = useState([]);
+  const [jobs, setJobs] = useState([]);
   const [salaryData, setSalaryData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('');
+  const [employeeFilter, setEmployeeFilter] = useState('');
+  const [jobFilter, setJobFilter] = useState('');
+  const [viewMode, setViewMode] = useState('employees'); // 'employees' or 'jobs'
+  const [searchQuery, setSearchQuery] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -22,12 +27,14 @@ export default function SupervisorDashboard() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [employeesData, salaryDataRes] = await Promise.all([
+      const [employeesData, jobsData, salaryDataRes] = await Promise.all([
         employeeService.getAll(),
+        jobService.getAll(),
         employeeService.getCurrentMonthSalary()
       ]);
       
-      setEmployees(employeesData.employees || []);
+      setEmployees(employeesData.data || []);
+      setJobs(jobsData.data || []);
       setSalaryData(salaryDataRes);
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -53,9 +60,29 @@ export default function SupervisorDashboard() {
     return <Badge variant={variants[status] || 'default'}>{status}</Badge>;
   };
 
-  const filteredEmployees = filter 
-    ? employees.filter(emp => emp.employee_type === filter)
+  const filteredEmployees = employeeFilter 
+    ? employees.filter(emp => emp.employee_type === employeeFilter)
     : employees;
+
+  // Filter employees by search query
+  const searchedEmployees = searchQuery
+    ? filteredEmployees.filter(emp =>
+        emp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        emp.employee_type.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : filteredEmployees;
+
+  // Filter jobs by search query and status
+  const filteredJobs = jobFilter
+    ? jobs.filter(job => job.status === jobFilter)
+    : jobs;
+
+  const searchedJobs = searchQuery
+    ? filteredJobs.filter(job =>
+        job.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        job.type?.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : filteredJobs;
 
   // Hitung job count dan total gaji per employee dari salary details
   const getEmployeeJobCount = (employeeName) => {
@@ -76,6 +103,38 @@ export default function SupervisorDashboard() {
     organik: employees.filter(e => e.employee_type === 'Organik').length,
     mitra: employees.filter(e => e.employee_type === 'Mitra').length,
     onProject: employees.filter(e => e.status === 'On_Project').length,
+  };
+
+  const jobStats = {
+    total: jobs.length,
+    draft: jobs.filter(j => j.status === 'DRAFT').length,
+    ongoing: jobs.filter(j => j.status === 'ONGOING').length,
+    completed: jobs.filter(j => j.status === 'COMPLETED').length,
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return '-';
+    return new Date(dateString).toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric'
+    });
+  };
+
+  const getJobStatusBadge = (status) => {
+    const variants = {
+      DRAFT: 'default',
+      FINALIZED: 'info',
+      ONGOING: 'warning',
+      COMPLETED: 'success',
+    };
+    const labels = {
+      DRAFT: 'Draft',
+      FINALIZED: 'Final',
+      ONGOING: 'Berlangsung',
+      COMPLETED: 'Selesai',
+    };
+    return <Badge variant={variants[status] || 'default'}>{labels[status] || status}</Badge>;
   };
 
   return (
@@ -121,93 +180,198 @@ export default function SupervisorDashboard() {
         </div>
 
         {/* Salary Summary for Current Month */}
-        {salaryData && (
-          <Card title={`Ringkasan Gaji - ${salaryData.month}`} className="mb-8">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div>
-                <p className="text-sm text-gray-600">Total Gaji Bulan Ini</p>
-                <p className="text-2xl font-bold text-primary-600 mt-1">
-                  {formatCurrency(salaryData.totalSalary)}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Karyawan Aktif</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">
-                  {salaryData.employeeCount}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Rata-rata per Karyawan</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">
-                  {formatCurrency(salaryData.averageSalary)}
-                </p>
+        <Card title={`Ringkasan Gaji - ${salaryData?.month || 'Bulan Ini'}`} className="mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+              <p className="text-sm text-gray-600">Total Gaji Bulan Ini</p>
+              <p className="text-2xl font-bold text-primary-600 mt-1">
+                {formatCurrency(salaryData?.totalSalary || 0)}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-600">Karyawan Aktif</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">
+                {salaryData?.employeeCount || 0}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-600">Rata-rata per Karyawan</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">
+                {formatCurrency(salaryData?.averageSalary || 0)}
+              </p>
+            </div>
+          </div>
+
+          {salaryData?.details && salaryData.details.length > 0 && (
+            <div className="mt-6 pt-6 border-t">
+              <h4 className="font-semibold mb-4">Detail per Karyawan</h4>
+              <div className="space-y-2 max-h-64 overflow-y-auto scrollbar-thin">
+                {salaryData.details.map((detail, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div>
+                      <p className="font-medium">{detail.employeeName}</p>
+                      <p className="text-sm text-gray-600">{detail.jobCount} pekerjaan</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold text-primary-600">
+                        {formatCurrency(detail.salary)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
+          )}
+        </Card>
 
-            {salaryData.details && salaryData.details.length > 0 && (
-              <div className="mt-6 pt-6 border-t">
-                <h4 className="font-semibold mb-4">Detail per Karyawan</h4>
-                <div className="space-y-2 max-h-64 overflow-y-auto scrollbar-thin">
-                  {salaryData.details.map((detail, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div>
-                        <p className="font-medium">{detail.employeeName}</p>
-                        <p className="text-sm text-gray-600">{detail.jobTitle}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-semibold text-primary-600">
-                          {formatCurrency(detail.salary)}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </Card>
-        )}
-
-        {/* Employees Table */}
-        <Card title="Daftar Karyawan">
-          <div className="mb-4 flex gap-2">
-            <button 
-              className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                filter === '' 
-                  ? 'bg-primary-600 text-white' 
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-              onClick={() => setFilter('')}
-            >
-              Semua
-            </button>
-            <button 
-              className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                filter === 'Organik' 
-                  ? 'bg-primary-600 text-white' 
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-              onClick={() => setFilter('Organik')}
-            >
-              Organik
-            </button>
-            <button 
-              className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                filter === 'Mitra' 
-                  ? 'bg-primary-600 text-white' 
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-              onClick={() => setFilter('Mitra')}
-            >
-              Mitra
-            </button>
+        {/* Data Table with Toggle */}
+        <Card>
+          {/* View Mode Toggle */}
+          <div className="mb-6 flex items-center justify-between">
+            <div className="flex gap-2">
+              <button
+                className={`px-6 py-2.5 rounded-lg font-medium transition-colors ${
+                  viewMode === 'employees'
+                    ? 'bg-primary-600 text-white shadow-md'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+                onClick={() => {
+                  setViewMode('employees');
+                  setEmployeeFilter('');
+                  setSearchQuery('');
+                }}
+              >
+                📋 Daftar Karyawan
+              </button>
+              <button
+                className={`px-6 py-2.5 rounded-lg font-medium transition-colors ${
+                  viewMode === 'jobs'
+                    ? 'bg-primary-600 text-white shadow-md'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+                onClick={() => {
+                  setViewMode('jobs');
+                  setJobFilter('');
+                  setSearchQuery('');
+                }}
+              >
+                💼 Daftar Pekerjaan
+              </button>
+            </div>
           </div>
+
+          {/* Search Bar */}
+          <div className="mb-4">
+            <div className="relative max-w-md">
+              <input
+                type="text"
+                placeholder={viewMode === 'employees' ? 'Cari karyawan...' : 'Cari pekerjaan...'}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              />
+              <svg
+                className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
+              </svg>
+            </div>
+          </div>
+
+          {/* Filters */}
+          {viewMode === 'employees' ? (
+            <div className="mb-4 flex gap-2">
+              <button 
+                className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                  employeeFilter === '' 
+                    ? 'bg-primary-600 text-white' 
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+                onClick={() => setEmployeeFilter('')}
+              >
+                Semua
+              </button>
+              <button 
+                className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                  employeeFilter === 'Organik' 
+                    ? 'bg-primary-600 text-white' 
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+                onClick={() => setEmployeeFilter('Organik')}
+              >
+                Organik
+              </button>
+              <button 
+                className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                  employeeFilter === 'Mitra' 
+                    ? 'bg-primary-600 text-white' 
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+                onClick={() => setEmployeeFilter('Mitra')}
+              >
+                Mitra
+              </button>
+            </div>
+          ) : (
+            <div className="mb-4 flex gap-2">
+              <button 
+                className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                  jobFilter === '' 
+                    ? 'bg-primary-600 text-white' 
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+                onClick={() => setJobFilter('')}
+              >
+                Semua
+              </button>
+              <button 
+                className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                  jobFilter === 'DRAFT' 
+                    ? 'bg-primary-600 text-white' 
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+                onClick={() => setJobFilter('DRAFT')}
+              >
+                Draft
+              </button>
+              <button 
+                className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                  jobFilter === 'ONGOING' 
+                    ? 'bg-primary-600 text-white' 
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+                onClick={() => setJobFilter('ONGOING')}
+              >
+                Berlangsung
+              </button>
+              <button 
+                className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                  jobFilter === 'COMPLETED' 
+                    ? 'bg-primary-600 text-white' 
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+                onClick={() => setJobFilter('COMPLETED')}
+              >
+                Selesai
+              </button>
+            </div>
+          )}
 
           {loading ? (
             <Loading className="py-8" />
-          ) : (
+          ) : viewMode === 'employees' ? (
+            /* Employee Table */
             <Table
               headers={['Nama', 'Tipe', 'Status', 'Jumlah Job Bulan Ini', 'Total Gaji Bulan Ini', 'Aksi']}
-              data={filteredEmployees}
+              data={searchedEmployees}
               renderRow={(employee) => (
                 <tr key={employee._id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -262,6 +426,39 @@ export default function SupervisorDashboard() {
                 </tr>
               )}
               emptyMessage="Tidak ada karyawan"
+            />
+          ) : (
+            /* Jobs Table */
+            <Table
+              headers={['Judul Pekerjaan', 'Tipe', 'Status', 'Tanggal Mulai', 'Tanggal Selesai', 'Honorarium']}
+              data={searchedJobs}
+              renderRow={(job) => (
+                <tr key={job._id} className="hover:bg-gray-50">
+                  <td className="px-6 py-4">
+                    <span className="font-medium text-gray-900">{job.title}</span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <Badge variant="info">
+                      {job.type || '-'}
+                    </Badge>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    {getJobStatusBadge(job.status)}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    {formatDate(job.start_date)}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    {formatDate(job.end_date)}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className="text-sm font-semibold text-green-600">
+                      {formatCurrency(job.estimated_honorarium)}
+                    </span>
+                  </td>
+                </tr>
+              )}
+              emptyMessage="Tidak ada pekerjaan"
             />
           )}
         </Card>

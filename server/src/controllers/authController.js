@@ -13,7 +13,41 @@ const generateToken = (id) => {
 // @access  Public
 export const register = async (req, res, next) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, role, registrationKey } = req.body;
+
+    // Validate registration key
+    if (!registrationKey) {
+      return res.status(400).json({
+        success: false,
+        message: 'Registration key is required',
+      });
+    }
+
+    // Validate role
+    if (!role || !['Team_Lead', 'Supervisor'].includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid role. Must be Team_Lead or Supervisor',
+      });
+    }
+
+    // Check registration key based on role
+    const TEAM_LEAD_KEY = process.env.TEAM_LEAD_REGISTRATION_KEY || 'TEAMLEAD2025';
+    const SUPERVISOR_KEY = process.env.SUPERVISOR_REGISTRATION_KEY || 'SUPERVISOR2025';
+
+    if (role === 'Team_Lead' && registrationKey !== TEAM_LEAD_KEY) {
+      return res.status(403).json({
+        success: false,
+        message: 'Invalid registration key for Team Lead',
+      });
+    }
+
+    if (role === 'Supervisor' && registrationKey !== SUPERVISOR_KEY) {
+      return res.status(403).json({
+        success: false,
+        message: 'Invalid registration key for Supervisor',
+      });
+    }
 
     // Check if user already exists
     const userExists = await User.findOne({ email });
@@ -25,11 +59,12 @@ export const register = async (req, res, next) => {
       });
     }
 
-    // Create user
+    // Create user with role
     const user = await User.create({
       name,
       email,
       password,
+      role,
     });
 
     // Generate token
@@ -43,6 +78,7 @@ export const register = async (req, res, next) => {
           id: user._id,
           name: user.name,
           email: user.email,
+          role: user.role,
         },
         token,
       },
@@ -98,6 +134,7 @@ export const login = async (req, res, next) => {
           id: user._id,
           name: user.name,
           email: user.email,
+          role: user.role,
         },
         token,
       },
@@ -121,6 +158,7 @@ export const getMe = async (req, res, next) => {
           id: user._id,
           name: user.name,
           email: user.email,
+          role: user.role,
         },
       },
     });

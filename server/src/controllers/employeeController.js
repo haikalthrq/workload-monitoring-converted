@@ -211,6 +211,13 @@ export const getEmployeesWithSalaryThisMonth = async (req, res, next) => {
     const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
     const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
 
+    // Get month name in Indonesian
+    const monthNames = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ];
+    const currentMonth = `${monthNames[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
+
     const employees = await Employee.find();
 
     const employeesWithSalary = await Promise.all(
@@ -245,10 +252,114 @@ export const getEmployeesWithSalaryThisMonth = async (req, res, next) => {
       })
     );
 
+    // Calculate summary statistics
+    const employeesWithJobs = employeesWithSalary.filter(emp => emp.jobs_this_month > 0);
+    const totalSalary = employeesWithSalary.reduce((sum, emp) => sum + emp.salary_this_month, 0);
+    const activeEmployeeCount = employeesWithJobs.length;
+    const averageSalary = activeEmployeeCount > 0 ? totalSalary / activeEmployeeCount : 0;
+
+    // Create details array for frontend
+    const details = employeesWithJobs.map(emp => ({
+      employeeName: emp.name,
+      salary: emp.salary_this_month,
+      jobCount: emp.jobs_this_month,
+    }));
+
     res.status(200).json({
       success: true,
+      month: currentMonth,
+      totalSalary: totalSalary,
+      employeeCount: activeEmployeeCount,
+      averageSalary: averageSalary,
+      details: details,
       count: employeesWithSalary.length,
       data: employeesWithSalary,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Update employee status (only Available <-> Unavailable)
+// @route   PUT /api/employees/:id/status
+// @access  Private
+export const updateEmployeeStatus = async (req, res, next) => {
+  try {
+    const { status, unavailable_start_date, unavailable_end_date, unavailable_reason } = req.body;
+
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a status',
+      });
+    }
+
+    // Only allow changing to Available or Unavailable
+    if (status !== 'Available' && status !== 'Unavailable') {
+      return res.status(400).json({
+        success: false,
+        message: 'Can only change status to Available or Unavailable manually',
+      });
+    }
+
+    const employee = await Employee.findById(req.params.id);
+
+    if (!employee) {
+      return res.status(404).json({
+        success: false,
+        message: 'Employee not found',
+      });
+    }
+
+    // Check if employee has active jobs when changing to Unavailable
+    if (status === 'Unavailable') {
+      const activeAssignments = await JobAssignment.find({
+        employee_id: employee._id,
+      }).populate('job_id');
+
+      const hasActiveJobs = activeAssignments.some(
+        (a) => a.job_id && a.job_id.status !== 'COMPLETED'
+      );
+
+      if (hasActiveJobs) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot change status to Unavailable. Employee has active job assignments',
+        });
+      }
+
+      // Validate dates if changing to Unavailable
+      if (unavailable_start_date && unavailable_end_date) {
+        const startDate = new Date(unavailable_start_date);
+        const endDate = new Date(unavailable_end_date);
+        
+        if (endDate < startDate) {
+          return res.status(400).json({
+            success: false,
+            message: 'End date cannot be earlier than start date',
+          });
+        }
+      }
+
+      // Update status with unavailable details
+      employee.status = status;
+      employee.unavailable_start_date = unavailable_start_date || null;
+      employee.unavailable_end_date = unavailable_end_date || null;
+      employee.unavailable_reason = unavailable_reason || null;
+    } else {
+      // Changing to Available - clear unavailable details
+      employee.status = status;
+      employee.unavailable_start_date = null;
+      employee.unavailable_end_date = null;
+      employee.unavailable_reason = null;
+    }
+
+    await employee.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Employee status updated successfully',
+      data: employee,
     });
   } catch (error) {
     next(error);

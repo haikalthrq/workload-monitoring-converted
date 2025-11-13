@@ -9,7 +9,7 @@ const jobSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ['Sensus_Survey', 'Kegiatan_Lain'],
+      enum: ['Sensus/Survey', 'Kegiatan Lain'],
       default: null,
     },
     start_date: {

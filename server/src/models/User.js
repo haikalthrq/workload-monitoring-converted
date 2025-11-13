@@ -22,6 +22,11 @@ const userSchema = new mongoose.Schema(
       minlength: [6, 'Password must be at least 6 characters'],
       select: false, // Don't include password in queries by default
     },
+    role: {
+      type: String,
+      enum: ['Team_Lead', 'Supervisor'],
+      required: [true, 'Role is required'],
+    },
   },
   {
     timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' },

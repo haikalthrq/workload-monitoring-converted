@@ -125,10 +125,36 @@ export const updateJob = async (req, res, next) => {
       });
     }
 
+    const oldStatus = job.status;
+    
     job = await Job.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
       runValidators: true,
     });
+
+    // If job is marked as COMPLETED, check all assigned employees
+    if (oldStatus !== 'COMPLETED' && job.status === 'COMPLETED') {
+      const assignments = await JobAssignment.find({ job_id: job._id });
+      
+      for (const assignment of assignments) {
+        // Check if employee has other active jobs
+        const otherAssignments = await JobAssignment.find({
+          employee_id: assignment.employee_id,
+        }).populate('job_id');
+
+        // Filter for jobs that are not COMPLETED
+        const activeJobs = otherAssignments.filter(
+          (a) => a.job_id && a.job_id.status !== 'COMPLETED'
+        );
+
+        // If no more active jobs, update status to Available
+        if (activeJobs.length === 0) {
+          await Employee.findByIdAndUpdate(assignment.employee_id, {
+            status: 'Available',
+          });
+        }
+      }
+    }
 
     res.status(200).json({
       success: true,
@@ -167,7 +193,7 @@ export const deleteJob = async (req, res, next) => {
 
     await Job.findByIdAndDelete(req.params.id);
 
-    // Delete related assignments
+    // Delete related assignments (no status update needed)
     await JobAssignment.deleteMany({ job_id: job._id });
 
     res.status(200).json({
@@ -212,6 +238,11 @@ export const assignEmployees = async (req, res, next) => {
           throw new Error(`Employee with ID ${employee_id} not found`);
         }
 
+        // Prevent assigning Unavailable employees
+        if (employee.status === 'Unavailable') {
+          throw new Error(`Employee ${employee.name} is currently unavailable and cannot be assigned`);
+        }
+
         // Check if already assigned
         const existingAssignment = await JobAssignment.findOne({
           job_id: job._id,
@@ -222,11 +253,18 @@ export const assignEmployees = async (req, res, next) => {
           return existingAssignment;
         }
 
-        // Create new assignment
-        return await JobAssignment.create({
+        // Create new assignment and update employee status to On_Project
+        const assignment = await JobAssignment.create({
           job_id: job._id,
           employee_id,
         });
+
+        // Auto-update employee status to On_Project
+        await Employee.findByIdAndUpdate(employee_id, {
+          status: 'On_Project',
+        });
+
+        return assignment;
       })
     );
 
@@ -256,6 +294,23 @@ export const removeEmployeeAssignment = async (req, res, next) => {
       return res.status(404).json({
         success: false,
         message: 'Assignment not found',
+      });
+    }
+
+    // Check if employee has other active jobs
+    const otherAssignments = await JobAssignment.find({
+      employee_id: employeeId,
+    }).populate('job_id');
+
+    // Filter for jobs that are not COMPLETED
+    const activeJobs = otherAssignments.filter(
+      (a) => a.job_id && a.job_id.status !== 'COMPLETED'
+    );
+
+    // If no more active jobs, update status to Available
+    if (activeJobs.length === 0) {
+      await Employee.findByIdAndUpdate(employeeId, {
+        status: 'Available',
       });
     }
 

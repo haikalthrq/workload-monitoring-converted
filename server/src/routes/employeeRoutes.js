@@ -6,6 +6,7 @@ import {
   updateEmployee,
   deleteEmployee,
   getEmployeesWithSalaryThisMonth,
+  updateEmployeeStatus,
 } from '../controllers/employeeController.js';
 import { protect } from '../middleware/auth.js';
 
@@ -17,6 +18,8 @@ router.use(protect);
 router.route('/').get(getEmployees).post(createEmployee);
 
 router.route('/salary/current-month').get(getEmployeesWithSalaryThisMonth);
+
+router.route('/:id/status').put(updateEmployeeStatus);
 
 router
   .route('/:id')

@@ -20,14 +20,14 @@ export const Navbar = () => {
     <nav className="bg-transparent">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-20">
         <div className="flex justify-between items-center h-16">
-          {/* Logo with Avatar */}
+          {/* Left Side - Logo with Avatar */}
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center">
               <span className="text-cyan-700 text-xs font-bold">
                 {user ? getInitials(user.name) : ''}
               </span>
             </div>
-            <h1 className="text-2xl font-bold text-white italic">LOGO</h1>
+            <h1 className="text-2xl font-bold text-white">Workload Monitoring</h1>
           </div>
 
           {/* User Menu */}

@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useEffect } from 'react';
 import { Navbar } from '../components/Navbar';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -8,6 +9,18 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
+  // Auto redirect based on role
+  useEffect(() => {
+    if (user?.role) {
+      if (user.role === 'Team_Lead') {
+        navigate('/teamlead/dashboard', { replace: true });
+      } else if (user.role === 'Supervisor') {
+        navigate('/supervisor/dashboard', { replace: true });
+      }
+    }
+  }, [user, navigate]);
+
+  // Fallback UI (won't be seen due to redirect)
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />

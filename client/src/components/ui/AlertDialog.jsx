@@ -1,5 +1,21 @@
-export function AlertDialog({ isOpen, onClose, title, description, variant = 'success' }) {
+export function AlertDialog({ 
+  isOpen, 
+  onClose, 
+  title, 
+  description, 
+  variant = 'success',
+  confirmText = 'OK',
+  onConfirm
+}) {
   if (!isOpen) return null;
+
+  const handleConfirm = () => {
+    if (onConfirm) {
+      onConfirm();
+    } else {
+      onClose();
+    }
+  };
 
   const variantStyles = {
     success: 'bg-green-50 border-green-200',
@@ -58,10 +74,10 @@ export function AlertDialog({ isOpen, onClose, title, description, variant = 'su
         </div>
         <div className="bg-gray-50 px-6 py-3 flex justify-end">
           <button
-            onClick={onClose}
+            onClick={handleConfirm}
             className="px-4 py-2 bg-cyan-600 text-white text-sm font-medium rounded-md hover:bg-cyan-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-cyan-500"
           >
-            OK
+            {confirmText}
           </button>
         </div>
       </div>

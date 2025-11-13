@@ -21,6 +21,18 @@ const employeeSchema = new mongoose.Schema(
       enum: ['Available', 'Unavailable', 'On_Project'],
       default: 'Available',
     },
+    unavailable_start_date: {
+      type: Date,
+      default: null,
+    },
+    unavailable_end_date: {
+      type: Date,
+      default: null,
+    },
+    unavailable_reason: {
+      type: String,
+      default: null,
+    },
   },
   {
     timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },

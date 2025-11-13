@@ -36,4 +36,10 @@ export const employeeService = {
     const response = await api.get('/employees/salary/current-month');
     return response.data;
   },
+
+  // Update employee status
+  updateStatus: async (id, statusData) => {
+    const response = await api.put(`/employees/${id}/status`, statusData);
+    return response.data;
+  },
 };

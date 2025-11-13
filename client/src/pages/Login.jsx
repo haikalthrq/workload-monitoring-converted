@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
+import { AlertDialog } from '../components/ui/AlertDialog';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -14,6 +15,7 @@ export default function Login() {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false);
 
   const handleChange = (e) => {
     setFormData({
@@ -29,12 +31,18 @@ export default function Login() {
 
     try {
       await login(formData);
-      navigate('/dashboard');
+      // Show success dialog instead of immediate redirect
+      setShowSuccessDialog(true);
     } catch (err) {
       setError(err.response?.data?.message || 'Login gagal. Periksa email dan password Anda.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSuccessDialogClose = () => {
+    setShowSuccessDialog(false);
+    navigate('/dashboard');
   };
 
   return (
@@ -74,12 +82,6 @@ export default function Login() {
               required
             />
 
-            <div className="text-right">
-              <a href="#" className="text-sm text-cyan-700 hover:underline">
-                Lupa password?
-              </a>
-            </div>
-
             <Button
               type="submit"
               className="w-full bg-cyan-700 hover:bg-cyan-800"
@@ -99,6 +101,16 @@ export default function Login() {
           </div>
         </Card>
       </div>
+
+      {/* Success Dialog */}
+      <AlertDialog
+        isOpen={showSuccessDialog}
+        onClose={handleSuccessDialogClose}
+        title="Login Berhasil! 🎉"
+        description={`Selamat datang kembali! Anda akan diarahkan ke dashboard.`}
+        confirmText="Lanjutkan"
+        onConfirm={handleSuccessDialogClose}
+      />
     </div>
   );
 }
