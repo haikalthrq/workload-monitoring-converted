@@ -13,13 +13,13 @@ const employeeSchema = new mongoose.Schema(
     },
     employee_type: {
       type: String,
-      enum: ['Organik', 'Mitra'],
+      enum: ['ORGANIK', 'MITRA'],
       required: [true, 'Employee type is required'],
     },
     status: {
       type: String,
-      enum: ['Available', 'Unavailable', 'On_Project'],
-      default: 'Available',
+      enum: ['AVAILABLE', 'UNAVAILABLE', 'ON_PROJECT'],
+      default: 'AVAILABLE',
     },
     unavailable_start_date: {
       type: Date,

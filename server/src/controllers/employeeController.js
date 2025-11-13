@@ -4,13 +4,14 @@ import EmployeeMitraDetails from '../models/EmployeeMitraDetail.js';
 import JobAssignment from '../models/JobAssignment.js';
 import MitraExperience from '../models/MitraExperience.js';
 import OrganikWorkHistory from '../models/OrganikWorkHistory.js';
+import ExperienceType from '../models/ExperienceType.js';
 
 // @desc    Get all employees
 // @route   GET /api/employees
 // @access  Private
 export const getEmployees = async (req, res, next) => {
   try {
-    const { type, status, search } = req.query;
+    const { type, status, search, experience } = req.query;
 
     // Build filter
     const filter = {};
@@ -18,7 +19,24 @@ export const getEmployees = async (req, res, next) => {
     if (status) filter.status = status;
     if (search) filter.name = { $regex: search, $options: 'i' };
 
-    const employees = await Employee.find(filter).sort({ createdAt: -1 });
+    let employees = await Employee.find(filter).sort({ createdAt: -1 }).lean();
+
+    // Get experiences for all employees
+    for (let emp of employees) {
+      const experiences = await MitraExperience.find({
+        employee_id: emp._id,
+      }).populate('experience_type_id');
+      emp.experiences = experiences;
+    }
+
+    // Filter by experience if specified
+    if (experience) {
+      employees = employees.filter(emp => {
+        return emp.experiences && emp.experiences.some(exp => 
+          exp.experience_type_id && exp.experience_type_id.name === experience
+        );
+      });
+    }
 
     res.status(200).json({
       success: true,
@@ -52,7 +70,7 @@ export const getEmployee = async (req, res, next) => {
     // Get additional details based on employee type
     let additionalData = {};
 
-    if (employee.employee_type === 'Mitra') {
+    if (employee.employee_type === 'MITRA') {
       const mitraDetails = await EmployeeMitraDetails.findOne({
         employee_id: employee._id,
       });
@@ -62,7 +80,7 @@ export const getEmployee = async (req, res, next) => {
       
       additionalData.employee_mitra_details = mitraDetails;
       additionalData.mitra_experiences = experiences;
-    } else if (employee.employee_type === 'Organik') {
+    } else if (employee.employee_type === 'ORGANIK') {
       const organikDetails = await EmployeeOrganikDetails.findOne({
         employee_id: employee._id,
       });
@@ -280,7 +298,7 @@ export const getEmployeesWithSalaryThisMonth = async (req, res, next) => {
   }
 };
 
-// @desc    Update employee status (only Available <-> Unavailable)
+// @desc    Update employee status (only AVAILABLE <-> UNAVAILABLE)
 // @route   PUT /api/employees/:id/status
 // @access  Private
 export const updateEmployeeStatus = async (req, res, next) => {
@@ -294,11 +312,11 @@ export const updateEmployeeStatus = async (req, res, next) => {
       });
     }
 
-    // Only allow changing to Available or Unavailable
-    if (status !== 'Available' && status !== 'Unavailable') {
+    // Only allow changing to AVAILABLE or UNAVAILABLE
+    if (status !== 'AVAILABLE' && status !== 'UNAVAILABLE') {
       return res.status(400).json({
         success: false,
-        message: 'Can only change status to Available or Unavailable manually',
+        message: 'Can only change status to AVAILABLE or UNAVAILABLE manually',
       });
     }
 
@@ -311,8 +329,8 @@ export const updateEmployeeStatus = async (req, res, next) => {
       });
     }
 
-    // Check if employee has active jobs when changing to Unavailable
-    if (status === 'Unavailable') {
+    // Check if employee has active jobs when changing to UNAVAILABLE
+    if (status === 'UNAVAILABLE') {
       const activeAssignments = await JobAssignment.find({
         employee_id: employee._id,
       }).populate('job_id');
@@ -324,11 +342,11 @@ export const updateEmployeeStatus = async (req, res, next) => {
       if (hasActiveJobs) {
         return res.status(400).json({
           success: false,
-          message: 'Cannot change status to Unavailable. Employee has active job assignments',
+          message: 'Cannot change status to UNAVAILABLE. Employee has active job assignments',
         });
       }
 
-      // Validate dates if changing to Unavailable
+      // Validate dates if changing to UNAVAILABLE
       if (unavailable_start_date && unavailable_end_date) {
         const startDate = new Date(unavailable_start_date);
         const endDate = new Date(unavailable_end_date);
@@ -347,7 +365,7 @@ export const updateEmployeeStatus = async (req, res, next) => {
       employee.unavailable_end_date = unavailable_end_date || null;
       employee.unavailable_reason = unavailable_reason || null;
     } else {
-      // Changing to Available - clear unavailable details
+      // Changing to AVAILABLE - clear unavailable details
       employee.status = status;
       employee.unavailable_start_date = null;
       employee.unavailable_end_date = null;

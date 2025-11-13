@@ -4,9 +4,13 @@ export const Card = ({
   title,
   ...props 
 }) => {
+  // Determine if custom background is provided
+  const hasCustomBg = className.includes('bg-');
+  const baseClasses = hasCustomBg ? '' : 'bg-white';
+  
   return (
     <div 
-      className={`bg-white rounded-lg shadow-sm border border-gray-200 ${className}`}
+      className={`${baseClasses} rounded-lg shadow-sm border border-gray-200 ${className}`}
       {...props}
     >
       {title && (

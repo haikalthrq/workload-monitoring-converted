@@ -34,8 +34,8 @@ const jobSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['DRAFT', 'FINALIZED', 'ONGOING', 'COMPLETED'],
-      default: 'DRAFT',
+      enum: ['PLANNED', 'ONGOING', 'COMPLETED'],
+      default: 'PLANNED',
     },
     created_by: {
       type: mongoose.Schema.Types.ObjectId,
@@ -45,8 +45,35 @@ const jobSchema = new mongoose.Schema(
   },
   {
     timestamps: { createdAt: 'created_at', updatedAt: false },
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
   }
 );
+
+// Virtual field untuk menghitung status otomatis berdasarkan tanggal
+jobSchema.virtual('auto_status').get(function() {
+  // Jika sudah ditandai COMPLETED manual, tetap COMPLETED
+  if (this.status === 'COMPLETED') {
+    return 'COMPLETED';
+  }
+
+  const now = new Date();
+  const startDate = new Date(this.start_date);
+  const endDate = new Date(this.end_date);
+
+  // Reset waktu ke 00:00:00 untuk perbandingan tanggal saja
+  now.setHours(0, 0, 0, 0);
+  startDate.setHours(0, 0, 0, 0);
+  endDate.setHours(0, 0, 0, 0);
+
+  if (now < startDate) {
+    return 'PLANNED'; // Belum dimulai
+  } else if (now >= startDate && now <= endDate) {
+    return 'ONGOING'; // Sedang berjalan
+  } else {
+    return 'COMPLETED'; // Sudah lewat tanggal selesai
+  }
+});
 
 // Indexes
 jobSchema.index({ status: 1 });

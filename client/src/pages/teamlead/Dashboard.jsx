@@ -19,10 +19,12 @@ export default function TeamLeadDashboard() {
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [showSalaryModal, setShowSalaryModal] = useState(false);
+  const [showJobDetailModal, setShowJobDetailModal] = useState(false);
   const [viewMode, setViewMode] = useState('jobs'); // 'jobs' or 'employees'
   const [filter, setFilter] = useState('');
   const [jobTypeFilter, setJobTypeFilter] = useState('');
   const [employeeTypeFilter, setEmployeeTypeFilter] = useState('');
+  const [experienceFilter, setExperienceFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [salaryData, setSalaryData] = useState(null);
   const [showStatusModal, setShowStatusModal] = useState(false);
@@ -33,6 +35,8 @@ export default function TeamLeadDashboard() {
     unavailable_end_date: '',
     unavailable_reason: '',
   });
+  const [sortedEmployees, setSortedEmployees] = useState([]);
+  const [sortedJobs, setSortedJobs] = useState([]);
 
   useEffect(() => {
     if (viewMode === 'jobs') {
@@ -40,7 +44,13 @@ export default function TeamLeadDashboard() {
     } else {
       fetchEmployees();
     }
-  }, [filter, jobTypeFilter, employeeTypeFilter, viewMode]);
+  }, [filter, jobTypeFilter, employeeTypeFilter, experienceFilter, viewMode]);
+
+  // Initialize sorted arrays when data changes
+  useEffect(() => {
+    setSortedJobs([]);
+    setSortedEmployees([]);
+  }, [jobs, employees]);
 
   const fetchJobs = async () => {
     try {
@@ -49,8 +59,8 @@ export default function TeamLeadDashboard() {
       if (filter) params.status = filter;
       if (jobTypeFilter) params.job_type = jobTypeFilter;
       
-      const data = await jobService.getAll(params);
-      setJobs(data.jobs || []);
+      const response = await jobService.getAll(params);
+      setJobs(response.data || []);
       
       // Fetch salary data
       await fetchSalaryData();
@@ -66,6 +76,7 @@ export default function TeamLeadDashboard() {
       setLoading(true);
       const params = {};
       if (employeeTypeFilter) params.type = employeeTypeFilter;
+      if (experienceFilter) params.experience = experienceFilter;
       
       const response = await employeeService.getAll(params);
       setEmployees(response.data || []);
@@ -90,31 +101,36 @@ export default function TeamLeadDashboard() {
 
   const getStatusBadge = (status) => {
     const variants = {
-      DRAFT: 'default',
-      FINALIZED: 'info',
+      PLANNED: 'info',
       ONGOING: 'warning',
       COMPLETED: 'success',
     };
     return <Badge variant={variants[status] || 'default'}>{status}</Badge>;
   };
 
-  const handleViewDetails = async (jobId) => {
+  const handleViewJobDetails = async (jobId) => {
     try {
-      const data = await jobService.getById(jobId);
-      setSelectedJob(data.job);
-      setShowModal(true);
+      console.log('Fetching job details for ID:', jobId);
+      const response = await jobService.getById(jobId);
+      console.log('Job details response:', response);
+      setSelectedJob(response.data);
+      setShowJobDetailModal(true);
+      console.log('Modal should open now');
     } catch (error) {
       console.error('Error fetching job details:', error);
+      alert('Gagal memuat detail pekerjaan: ' + (error.response?.data?.message || error.message));
     }
   };
 
   const handleViewEmployeeDetails = async (employeeId) => {
     try {
-      const data = await employeeService.getById(employeeId);
-      setSelectedEmployee(data);
+      const response = await employeeService.getById(employeeId);
+      console.log('Employee details:', response); // Debug log
+      setSelectedEmployee(response.data);
       setShowModal(true);
     } catch (error) {
       console.error('Error fetching employee details:', error);
+      alert('Gagal memuat detail karyawan');
     }
   };
 
@@ -137,15 +153,30 @@ export default function TeamLeadDashboard() {
   // Calculate statistics
   const stats = {
     total: jobs.length,
+    planned: jobs.filter(j => j.status === 'PLANNED').length,
     ongoing: jobs.filter(j => j.status === 'ONGOING').length,
     completed: jobs.filter(j => j.status === 'COMPLETED').length,
   };
 
   const employeeStats = {
     total: employees.length,
-    organik: employees.filter(e => e.employee_type === 'Organik').length,
-    mitra: employees.filter(e => e.employee_type === 'Mitra').length,
-    available: employees.filter(e => e.status === 'Available').length,
+    organik: employees.filter(e => e.employee_type === 'ORGANIK').length,
+    mitra: employees.filter(e => e.employee_type === 'MITRA').length,
+    available: employees.filter(e => e.status === 'AVAILABLE').length,
+    onProject: employees.filter(e => e.status === 'ON_PROJECT').length,
+    unavailable: employees.filter(e => e.status === 'UNAVAILABLE').length,
+    sakernas: employees.filter(e => 
+      e.experiences && e.experiences.some(exp => exp.experience_type_id?.name === 'SAKERNAS')
+    ).length,
+    susenas: employees.filter(e => 
+      e.experiences && e.experiences.some(exp => exp.experience_type_id?.name === 'SUSENAS')
+    ).length,
+    vhtl: employees.filter(e => 
+      e.experiences && e.experiences.some(exp => exp.experience_type_id?.name === 'VHTL')
+    ).length,
+    kepka: employees.filter(e => 
+      e.experiences && e.experiences.some(exp => exp.experience_type_id?.name === 'KEPKA')
+    ).length,
   };
 
   // Filter employees based on search
@@ -153,11 +184,89 @@ export default function TeamLeadDashboard() {
     emp.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  // Sort handlers
+  const handleEmployeeSort = (headerIndex, direction) => {
+    const fieldMap = {
+      0: 'name',
+      1: 'employee_type',
+      2: 'status',
+    };
+    
+    const field = fieldMap[headerIndex];
+    if (!field) {
+      setSortedEmployees([...filteredEmployees]);
+      return;
+    }
+    
+    const sorted = [...filteredEmployees].sort((a, b) => {
+      let aVal = a[field] || '';
+      let bVal = b[field] || '';
+      
+      // Convert to string for comparison
+      aVal = String(aVal).toLowerCase();
+      bVal = String(bVal).toLowerCase();
+      
+      if (direction === 'asc') {
+        return aVal.localeCompare(bVal);
+      } else {
+        return bVal.localeCompare(aVal);
+      }
+    });
+    
+    setSortedEmployees(sorted);
+  };
+
+  const handleJobSort = (headerIndex, direction) => {
+    const fieldMap = {
+      0: 'title',
+      1: 'type',
+      2: 'start_date',
+      3: 'end_date',
+      4: 'status',
+    };
+    
+    const field = fieldMap[headerIndex];
+    if (!field) {
+      setSortedJobs([...jobs]);
+      return;
+    }
+    
+    const sorted = [...jobs].sort((a, b) => {
+      let aVal = a[field] || '';
+      let bVal = b[field] || '';
+      
+      // Handle date fields
+      if (field === 'start_date' || field === 'end_date') {
+        aVal = aVal ? new Date(aVal).getTime() : 0;
+        bVal = bVal ? new Date(bVal).getTime() : 0;
+        
+        if (direction === 'asc') {
+          return aVal - bVal;
+        } else {
+          return bVal - aVal;
+        }
+      }
+      
+      // Convert to string for comparison
+      aVal = String(aVal).toLowerCase();
+      bVal = String(bVal).toLowerCase();
+      
+      if (direction === 'asc') {
+        return aVal.localeCompare(bVal);
+      } else {
+        return bVal.localeCompare(aVal);
+      }
+    });
+    
+    setSortedJobs(sorted);
+  };
+
   const handleViewModeChange = (mode) => {
     setViewMode(mode);
     setFilter('');
     setJobTypeFilter('');
     setEmployeeTypeFilter('');
+    setExperienceFilter('');
     setSearchQuery('');
     if (mode === 'jobs') {
       setSelectedEmployee(null);
@@ -169,7 +278,7 @@ export default function TeamLeadDashboard() {
   const handleStatusChange = (employee) => {
     setEmployeeToUpdate(employee);
     setStatusFormData({
-      status: employee.status === 'Available' ? 'Unavailable' : 'Available',
+      status: employee.status === 'AVAILABLE' ? 'UNAVAILABLE' : 'AVAILABLE',
       unavailable_start_date: employee.unavailable_start_date 
         ? new Date(employee.unavailable_start_date).toISOString().split('T')[0] 
         : '',
@@ -189,8 +298,8 @@ export default function TeamLeadDashboard() {
         status: statusFormData.status,
       };
 
-      // Only include unavailable details if changing to Unavailable
-      if (statusFormData.status === 'Unavailable') {
+      // Only include unavailable details if changing to UNAVAILABLE
+      if (statusFormData.status === 'UNAVAILABLE') {
         if (statusFormData.unavailable_start_date) {
           dataToSend.unavailable_start_date = statusFormData.unavailable_start_date;
         }
@@ -255,14 +364,14 @@ export default function TeamLeadDashboard() {
           <Button
             onClick={() => handleViewModeChange('jobs')}
             variant={viewMode === 'jobs' ? 'primary' : 'outline'}
-            className={viewMode === 'jobs' ? 'bg-white text-cyan-600 hover:bg-gray-100' : 'bg-white/20 text-white hover:bg-white/30'}
+            className={viewMode === 'jobs' ? 'bg-cyan-900 text-white font-semibold hover:bg-cyan-800' : 'bg-white text-cyan-900 border-2 border-white hover:bg-white/90'}
           >
             Daftar Pekerjaan
           </Button>
           <Button
             onClick={() => handleViewModeChange('employees')}
             variant={viewMode === 'employees' ? 'primary' : 'outline'}
-            className={viewMode === 'employees' ? 'bg-white text-cyan-600 hover:bg-gray-100' : 'bg-white/20 text-white hover:bg-white/30'}
+            className={viewMode === 'employees' ? 'bg-cyan-900 text-white font-semibold hover:bg-cyan-800' : 'bg-white text-cyan-900 border-2 border-white hover:bg-white/90'}
           >
             Daftar Karyawan
           </Button>
@@ -278,63 +387,108 @@ export default function TeamLeadDashboard() {
               </div>
             </Card>
 
-            <Card className="border-none">
+            <Card className="border-none bg-gradient-to-br from-blue-50 to-blue-100">
               <div className="flex flex-col px-5 py-4">
-                <h3 className="text-4xl font-bold text-gray-900">{stats.ongoing}</h3>
-                <p className="text-gray-600 mt-1">On Going Job</p>
+                <h3 className="text-4xl font-bold text-blue-700">{stats.planned}</h3>
+                <p className="text-blue-600 mt-1 font-medium">PLANNED</p>
               </div>
             </Card>
 
-            <Card className="border-none">
+            <Card className="border-none bg-gradient-to-br from-orange-50 to-orange-100">
               <div className="flex flex-col px-5 py-4">
-                <h3 className="text-4xl font-bold text-gray-900">{stats.completed}</h3>
-                <p className="text-gray-600 mt-1">Completed</p>
+                <h3 className="text-4xl font-bold text-orange-700">{stats.ongoing}</h3>
+                <p className="text-orange-600 mt-1 font-medium">ONGOING</p>
               </div>
             </Card>
 
-            <Card 
-              className="border-none cursor-pointer hover:shadow-lg transition-shadow"
-              onClick={() => setShowSalaryModal(true)}
-            >
+            <Card className="border-none bg-gradient-to-br from-green-50 to-green-100">
               <div className="flex flex-col px-5 py-4">
-                <h3 className="text-4xl font-bold text-green-600">
-                  {formatCurrency(salaryData?.totalSalary || 0)}
-                </h3>
-                <p className="text-gray-600 mt-1">Total Gaji Bulan Ini</p>
-                <p className="text-xs text-gray-500 mt-1">Klik untuk detail</p>
+                <h3 className="text-4xl font-bold text-green-700">{stats.completed}</h3>
+                <p className="text-green-600 mt-1 font-medium">COMPLETED</p>
               </div>
             </Card>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-            <Card className="border-none">
-              <div className="flex flex-col px-5 py-4">
-                <h3 className="text-4xl font-bold text-gray-900">{employeeStats.total}</h3>
-                <p className="text-gray-600 mt-1">Total Karyawan</p>
-              </div>
-            </Card>
+          <>
+            {/* Employee Type Statistics */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+              <Card className="border-none">
+                <div className="flex flex-col px-5 py-4">
+                  <h3 className="text-4xl font-bold text-gray-900">{employeeStats.total}</h3>
+                  <p className="text-gray-600 mt-1">Total Karyawan</p>
+                </div>
+              </Card>
 
-            <Card className="border-none">
-              <div className="flex flex-col px-5 py-4">
-                <h3 className="text-4xl font-bold text-gray-900">{employeeStats.organik}</h3>
-                <p className="text-gray-600 mt-1">Organik</p>
-              </div>
-            </Card>
+              <Card className="border-none bg-gradient-to-br from-indigo-50 to-indigo-100">
+                <div className="flex flex-col px-5 py-4">
+                  <h3 className="text-4xl font-bold text-indigo-700">{employeeStats.organik}</h3>
+                  <p className="text-indigo-600 mt-1 font-medium">ORGANIK</p>
+                </div>
+              </Card>
 
-            <Card className="border-none">
-              <div className="flex flex-col px-5 py-4">
-                <h3 className="text-4xl font-bold text-gray-900">{employeeStats.mitra}</h3>
-                <p className="text-gray-600 mt-1">Mitra</p>
-              </div>
-            </Card>
+              <Card className="border-none bg-gradient-to-br from-purple-50 to-purple-100">
+                <div className="flex flex-col px-5 py-4">
+                  <h3 className="text-4xl font-bold text-purple-700">{employeeStats.mitra}</h3>
+                  <p className="text-purple-600 mt-1 font-medium">MITRA</p>
+                </div>
+              </Card>
+            </div>
 
-            <Card className="border-none">
-              <div className="flex flex-col px-5 py-4">
-                <h3 className="text-4xl font-bold text-green-600">{employeeStats.available}</h3>
-                <p className="text-gray-600 mt-1">Available</p>
-              </div>
-            </Card>
-          </div>
+            {/* Employee Status Statistics */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+              <Card className="border-none bg-gradient-to-br from-green-50 to-green-100">
+                <div className="flex flex-col px-5 py-4">
+                  <h3 className="text-4xl font-bold text-green-700">{employeeStats.available}</h3>
+                  <p className="text-green-600 mt-1 font-medium">AVAILABLE</p>
+                </div>
+              </Card>
+
+              <Card className="border-none bg-gradient-to-br from-orange-50 to-orange-100">
+                <div className="flex flex-col px-5 py-4">
+                  <h3 className="text-4xl font-bold text-orange-700">{employeeStats.onProject}</h3>
+                  <p className="text-orange-600 mt-1 font-medium">ON PROJECT</p>
+                </div>
+              </Card>
+
+              <Card className="border-none bg-gradient-to-br from-red-50 to-red-100">
+                <div className="flex flex-col px-5 py-4">
+                  <h3 className="text-4xl font-bold text-red-700">{employeeStats.unavailable}</h3>
+                  <p className="text-red-600 mt-1 font-medium">UNAVAILABLE</p>
+                </div>
+              </Card>
+            </div>
+
+            {/* Experience Statistics */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+              <Card className="border-none bg-gradient-to-br from-blue-50 to-blue-100">
+                <div className="flex flex-col px-5 py-4">
+                  <h3 className="text-4xl font-bold text-blue-700">{employeeStats.sakernas}</h3>
+                  <p className="text-blue-600 mt-1 font-medium">SAKERNAS</p>
+                </div>
+              </Card>
+
+              <Card className="border-none bg-gradient-to-br from-purple-50 to-purple-100">
+                <div className="flex flex-col px-5 py-4">
+                  <h3 className="text-4xl font-bold text-purple-700">{employeeStats.susenas}</h3>
+                  <p className="text-purple-600 mt-1 font-medium">SUSENAS</p>
+                </div>
+              </Card>
+
+              <Card className="border-none bg-gradient-to-br from-cyan-50 to-cyan-100">
+                <div className="flex flex-col px-5 py-4">
+                  <h3 className="text-4xl font-bold text-cyan-700">{employeeStats.vhtl}</h3>
+                  <p className="text-cyan-600 mt-1 font-medium">VHTL</p>
+                </div>
+              </Card>
+
+              <Card className="border-none bg-gradient-to-br from-pink-50 to-pink-100">
+                <div className="flex flex-col px-5 py-4">
+                  <h3 className="text-4xl font-bold text-pink-700">{employeeStats.kepka}</h3>
+                  <p className="text-pink-600 mt-1 font-medium">KEPKA</p>
+                </div>
+              </Card>
+            </div>
+          </>
         )}
 
         {/* Jobs Table */}
@@ -368,10 +522,10 @@ export default function TeamLeadDashboard() {
                 </Button>
                 <Button 
                   size="sm" 
-                  variant={filter === 'DRAFT' ? 'primary' : 'ghost'}
-                  onClick={() => setFilter('DRAFT')}
+                  variant={filter === 'PLANNED' ? 'primary' : 'ghost'}
+                  onClick={() => setFilter('PLANNED')}
                 >
-                  Draft
+                  Planned
                 </Button>
                 <Button 
                   size="sm" 
@@ -395,7 +549,9 @@ export default function TeamLeadDashboard() {
             ) : (
               <Table
                 headers={['Nama Pekerjaan', 'Jenis', 'Tanggal Mulai', 'Tanggal Selesai', 'Status', 'Aksi']}
-                data={jobs}
+                data={sortedJobs.length > 0 ? sortedJobs : jobs}
+                sortable={true}
+                onSort={handleJobSort}
                 renderRow={(job) => (
                   <tr key={job._id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -417,7 +573,7 @@ export default function TeamLeadDashboard() {
                       <Button 
                         size="sm" 
                         variant="outline"
-                        onClick={() => handleViewDetails(job._id)}
+                        onClick={() => handleViewJobDetails(job._id)}
                       >
                         Detail
                       </Button>
@@ -430,8 +586,9 @@ export default function TeamLeadDashboard() {
           </Card>
         ) : (
           <Card title="Daftar Karyawan">
-            <div className="mb-4 flex flex-col sm:flex-row gap-4 justify-between">
-              <div className="flex gap-2">
+            <div className="mb-4 flex flex-col gap-4">
+              {/* Search Bar and Filters Row */}
+              <div className="flex flex-wrap gap-3 items-center">
                 {/* Search Bar */}
                 <div className="relative">
                   <input
@@ -439,7 +596,7 @@ export default function TeamLeadDashboard() {
                     placeholder="Cari nama karyawan..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10 pr-4 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    className="pl-10 pr-4 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 w-64"
                   />
                   <svg
                     className="w-5 h-5 text-gray-400 absolute left-3 top-2.5"
@@ -457,7 +614,8 @@ export default function TeamLeadDashboard() {
                 </div>
 
                 {/* Employee Type Filter */}
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
+                  <span className="text-sm font-medium text-gray-700">Tipe:</span>
                   <Button 
                     size="sm" 
                     variant={employeeTypeFilter === '' ? 'primary' : 'ghost'}
@@ -467,59 +625,135 @@ export default function TeamLeadDashboard() {
                   </Button>
                   <Button 
                     size="sm" 
-                    variant={employeeTypeFilter === 'Organik' ? 'primary' : 'ghost'}
-                    onClick={() => setEmployeeTypeFilter('Organik')}
+                    variant={employeeTypeFilter === 'ORGANIK' ? 'primary' : 'ghost'}
+                    onClick={() => setEmployeeTypeFilter('ORGANIK')}
                   >
                     Organik
                   </Button>
                   <Button 
                     size="sm" 
-                    variant={employeeTypeFilter === 'Mitra' ? 'primary' : 'ghost'}
-                    onClick={() => setEmployeeTypeFilter('Mitra')}
+                    variant={employeeTypeFilter === 'MITRA' ? 'primary' : 'ghost'}
+                    onClick={() => setEmployeeTypeFilter('MITRA')}
                   >
                     Mitra
                   </Button>
                 </div>
               </div>
 
-              {/* Create Employee Button */}
-              <Button
-                onClick={() => navigate('/teamlead/employees/create')}
-                className="bg-cyan-600 hover:bg-cyan-700 text-white"
-              >
-                <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                Create Karyawan
-              </Button>
+              {/* Experience Filter Row */}
+              <div className="flex flex-wrap gap-2 items-center">
+                <span className="text-sm font-medium text-gray-700">Pengalaman:</span>
+                <Button 
+                  size="sm" 
+                  variant={experienceFilter === '' ? 'primary' : 'ghost'}
+                  onClick={() => setExperienceFilter('')}
+                >
+                  Semua
+                </Button>
+                <Button 
+                  size="sm" 
+                  variant={experienceFilter === 'SAKERNAS' ? 'info' : 'ghost'}
+                  onClick={() => setExperienceFilter('SAKERNAS')}
+                  className={experienceFilter === 'SAKERNAS' ? 'bg-blue-600 hover:bg-blue-700' : ''}
+                >
+                  SAKERNAS
+                </Button>
+                <Button 
+                  size="sm" 
+                  variant={experienceFilter === 'SUSENAS' ? 'primary' : 'ghost'}
+                  onClick={() => setExperienceFilter('SUSENAS')}
+                  className={experienceFilter === 'SUSENAS' ? 'bg-purple-600 hover:bg-purple-700' : ''}
+                >
+                  SUSENAS
+                </Button>
+                <Button 
+                  size="sm" 
+                  variant={experienceFilter === 'VHTL' ? 'primary' : 'ghost'}
+                  onClick={() => setExperienceFilter('VHTL')}
+                  className={experienceFilter === 'VHTL' ? 'bg-cyan-600 hover:bg-cyan-700' : ''}
+                >
+                  VHTL
+                </Button>
+                <Button 
+                  size="sm" 
+                  variant={experienceFilter === 'KEPKA' ? 'primary' : 'ghost'}
+                  onClick={() => setExperienceFilter('KEPKA')}
+                  className={experienceFilter === 'KEPKA' ? 'bg-pink-600 hover:bg-pink-700' : ''}
+                >
+                  KEPKA
+                </Button>
+              </div>
+
+              {/* Create Employee Button Row */}
+              <div className="flex justify-end">
+                <Button
+                  onClick={() => navigate('/teamlead/employees/create')}
+                  className="bg-cyan-600 hover:bg-cyan-700 text-white"
+                >
+                  <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Create Karyawan
+                </Button>
+              </div>
             </div>
 
             {loading ? (
               <Loading className="py-8" />
             ) : (
               <Table
-                headers={['Nama', 'Tipe', 'Status', 'Aksi']}
-                data={filteredEmployees}
+                headers={['Nama', 'Tipe', 'Status', 'Pengalaman', 'Aksi']}
+                data={sortedEmployees.length > 0 ? sortedEmployees : filteredEmployees}
+                sortable={true}
+                onSort={handleEmployeeSort}
                 renderRow={(employee) => (
                   <tr key={employee._id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="font-medium text-gray-900">{employee.name}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <Badge variant={employee.employee_type === 'Organik' ? 'info' : 'default'}>
+                      <Badge variant={employee.employee_type === 'ORGANIK' ? 'indigo' : 'purple'}>
                         {employee.employee_type}
                       </Badge>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <Badge 
                         variant={
-                          employee.status === 'Available' ? 'success' :
-                          employee.status === 'On_Project' ? 'warning' :
-                          'default'
+                          employee.status === 'AVAILABLE' ? 'success' :
+                          employee.status === 'ON_PROJECT' ? 'warning' :
+                          'danger'
                         }
                       >
-                        {employee.status}
+                        {employee.status.replace('_', ' ')}
                       </Badge>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex flex-wrap gap-1">
+                        {employee.experiences && employee.experiences.length > 0 ? (
+                          employee.experiences.map((exp, index) => {
+                            const expName = exp.experience_type_id?.name || 'N/A';
+                            let variant = 'default';
+                            
+                            // Assign different colors for each experience type
+                            if (expName === 'SAKERNAS') variant = 'info'; // Blue
+                            else if (expName === 'SUSENAS') variant = 'purple'; // Purple
+                            else if (expName === 'VHTL') variant = 'cyan'; // Cyan
+                            else if (expName === 'KEPKA') variant = 'pink'; // Pink
+                            
+                            return (
+                              <Badge 
+                                key={index} 
+                                variant={variant}
+                                className="text-xs"
+                              >
+                                {expName}
+                              </Badge>
+                            );
+                          })
+                        ) : (
+                          <span className="text-gray-400 text-sm">-</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <div className="flex gap-2">
@@ -530,15 +764,15 @@ export default function TeamLeadDashboard() {
                         >
                           Detail
                         </Button>
-                        {employee.status !== 'On_Project' && (
-                          <Button 
-                            size="sm" 
-                            variant="primary"
-                            onClick={() => handleStatusChange(employee)}
-                          >
-                            Ubah Status
-                          </Button>
-                        )}
+                        <Button 
+                          size="sm" 
+                          variant="primary"
+                          onClick={() => handleStatusChange(employee)}
+                          disabled={employee.status === 'On_Project'}
+                          title={employee.status === 'On_Project' ? 'Tidak bisa ubah status karyawan yang sedang dalam pekerjaan' : ''}
+                        >
+                          Ubah Status
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -603,7 +837,7 @@ export default function TeamLeadDashboard() {
                   {selectedJob.employees.map((emp, idx) => (
                     <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 rounded">
                       <span>{emp.name}</span>
-                      <Badge variant={emp.employee_type === 'Organik' ? 'info' : 'default'}>
+                      <Badge variant={emp.employee_type === 'ORGANIK' ? 'indigo' : 'purple'}>
                         {emp.employee_type}
                       </Badge>
                     </div>
@@ -629,10 +863,11 @@ export default function TeamLeadDashboard() {
           size="lg"
         >
           <div className="space-y-4">
+            {/* Employee Type and Status */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-gray-600">Tipe Karyawan</p>
-                <Badge variant={selectedEmployee.employee_type === 'Organik' ? 'info' : 'default'}>
+                <Badge variant={selectedEmployee.employee_type === 'ORGANIK' ? 'indigo' : 'purple'}>
                   {selectedEmployee.employee_type}
                 </Badge>
               </div>
@@ -640,18 +875,42 @@ export default function TeamLeadDashboard() {
                 <p className="text-sm text-gray-600">Status</p>
                 <Badge 
                   variant={
-                    selectedEmployee.status === 'Available' ? 'success' :
-                    selectedEmployee.status === 'On_Project' ? 'warning' :
-                    'default'
+                    selectedEmployee.status === 'AVAILABLE' ? 'success' :
+                    selectedEmployee.status === 'ON_PROJECT' ? 'warning' :
+                    'danger'
                   }
                 >
-                  {selectedEmployee.status}
+                  {selectedEmployee.status.replace('_', ' ')}
                 </Badge>
               </div>
             </div>
 
+            {/* Experiences (for MITRA) */}
+            {selectedEmployee.employee_type === 'MITRA' && selectedEmployee.mitra_experiences && selectedEmployee.mitra_experiences.length > 0 && (
+              <div className="p-3 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-lg">
+                <p className="text-sm font-semibold text-gray-700 mb-2">Pengalaman</p>
+                <div className="flex flex-wrap gap-2">
+                  {selectedEmployee.mitra_experiences.map((exp, index) => {
+                    const expName = exp.experience_type_id?.name || 'N/A';
+                    let variant = 'default';
+                    
+                    if (expName === 'SAKERNAS') variant = 'info';
+                    else if (expName === 'SUSENAS') variant = 'purple';
+                    else if (expName === 'VHTL') variant = 'cyan';
+                    else if (expName === 'KEPKA') variant = 'pink';
+                    
+                    return (
+                      <Badge key={index} variant={variant}>
+                        {expName}
+                      </Badge>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Unavailable Details */}
-            {selectedEmployee.status === 'Unavailable' && (
+            {selectedEmployee.status === 'UNAVAILABLE' && (
               <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                 <p className="text-sm font-semibold text-gray-700 mb-2">Informasi Ketidaktersediaan</p>
                 <div className="grid grid-cols-2 gap-3 text-sm">
@@ -677,57 +936,135 @@ export default function TeamLeadDashboard() {
               </div>
             )}
 
+            {/* Employee Specific Details */}
             <div className="grid grid-cols-2 gap-4">
-              {selectedEmployee.employee_type === 'Organik' ? (
+              {selectedEmployee.employee_type === 'ORGANIK' ? (
                 <>
-                  <div>
-                    <p className="text-sm text-gray-600">NIP</p>
-                    <p className="font-medium">{selectedEmployee.organik_detail?.nip || '-'}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Jabatan</p>
-                    <p className="font-medium">{selectedEmployee.organik_detail?.position || '-'}</p>
-                  </div>
-                  <div className="col-span-2">
-                    <p className="text-sm text-gray-600">Unit Kerja</p>
-                    <p className="font-medium">{selectedEmployee.organik_detail?.department || '-'}</p>
-                  </div>
+                  {selectedEmployee.employee_organik_details && (
+                    <>
+                      <div>
+                        <p className="text-sm text-gray-600">NIP</p>
+                        <p className="font-medium">{selectedEmployee.employee_organik_details.nip || '-'}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-600">Jabatan</p>
+                        <p className="font-medium">{selectedEmployee.employee_organik_details.position || '-'}</p>
+                      </div>
+                      <div className="col-span-2">
+                        <p className="text-sm text-gray-600">Unit Kerja</p>
+                        <p className="font-medium">{selectedEmployee.employee_organik_details.department || '-'}</p>
+                      </div>
+                    </>
+                  )}
                 </>
               ) : (
                 <>
-                  <div>
-                    <p className="text-sm text-gray-600">Tanggal Mulai Kontrak</p>
-                    <p className="font-medium">
-                      {selectedEmployee.mitra_detail?.contract_start_date 
-                        ? formatDate(selectedEmployee.mitra_detail.contract_start_date) 
-                        : '-'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Tanggal Akhir Kontrak</p>
-                    <p className="font-medium">
-                      {selectedEmployee.mitra_detail?.contract_end_date 
-                        ? formatDate(selectedEmployee.mitra_detail.contract_end_date) 
-                        : '-'}
-                    </p>
-                  </div>
+                  {selectedEmployee.employee_mitra_details && (
+                    <>
+                      <div>
+                        <p className="text-sm text-gray-600">Tanggal Mulai Kontrak</p>
+                        <p className="font-medium">
+                          {selectedEmployee.employee_mitra_details.contract_start_date 
+                            ? formatDate(selectedEmployee.employee_mitra_details.contract_start_date) 
+                            : '-'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-600">Tanggal Akhir Kontrak</p>
+                        <p className="font-medium">
+                          {selectedEmployee.employee_mitra_details.contract_end_date 
+                            ? formatDate(selectedEmployee.employee_mitra_details.contract_end_date) 
+                            : '-'}
+                        </p>
+                      </div>
+                    </>
+                  )}
                 </>
               )}
             </div>
 
-            {selectedEmployee.current_jobs && selectedEmployee.current_jobs.length > 0 && (
+            {/* Work History (for ORGANIK) */}
+            {selectedEmployee.employee_type === 'ORGANIK' && selectedEmployee.organik_work_history && selectedEmployee.organik_work_history.length > 0 && (
               <div className="pt-4 border-t">
-                <h4 className="font-semibold mb-2">Pekerjaan Saat Ini</h4>
-                <div className="space-y-2">
-                  {selectedEmployee.current_jobs.map((job, idx) => (
-                    <div key={idx} className="p-3 bg-gray-50 rounded-lg">
-                      <p className="font-medium text-gray-900">{job.title}</p>
-                      <p className="text-sm text-gray-600">{job.type}</p>
-                      <div className="mt-1">
-                        {getStatusBadge(job.status)}
-                      </div>
+                <h4 className="font-semibold mb-2 text-gray-700">Riwayat Pekerjaan</h4>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {selectedEmployee.organik_work_history.map((history, idx) => (
+                    <div key={idx} className="p-3 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-lg">
+                      <p className="font-medium text-gray-900">{history.position}</p>
+                      <p className="text-sm text-gray-600">{history.department}</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {formatDate(history.start_date)} - {history.end_date ? formatDate(history.end_date) : 'Sekarang'}
+                      </p>
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* Job Assignments */}
+            {selectedEmployee.job_assignments && selectedEmployee.job_assignments.length > 0 && (
+              <div className="pt-4 border-t">
+                <h4 className="font-semibold mb-3 text-gray-700">
+                  Pekerjaan yang Di-assign ({selectedEmployee.job_assignments.length})
+                </h4>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {selectedEmployee.job_assignments.map((assignment, idx) => {
+                    const job = assignment.job_id;
+                    if (!job) return null;
+                    
+                    return (
+                      <div key={idx} className="p-3 bg-gradient-to-r from-cyan-50 to-blue-50 border border-cyan-200 rounded-lg hover:shadow-md transition-shadow">
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <p className="font-medium text-gray-900">{job.title}</p>
+                            <p className="text-sm text-gray-600 mt-1">
+                              <span className="inline-flex items-center">
+                                <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                                </svg>
+                                {job.type}
+                              </span>
+                            </p>
+                            <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                              <span className="flex items-center">
+                                <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                </svg>
+                                {formatDate(job.start_date)}
+                              </span>
+                              <span>→</span>
+                              <span className="flex items-center">
+                                <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                </svg>
+                                {formatDate(job.end_date)}
+                              </span>
+                            </div>
+                            {assignment.role && (
+                              <p className="text-xs text-gray-600 mt-1">
+                                <span className="font-medium">Role:</span> {assignment.role}
+                              </p>
+                            )}
+                          </div>
+                          <div className="ml-3">
+                            {getStatusBadge(job.status)}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* No Job Assignments */}
+            {(!selectedEmployee.job_assignments || selectedEmployee.job_assignments.length === 0) && (
+              <div className="pt-4 border-t">
+                <div className="text-center py-6 bg-gray-50 rounded-lg">
+                  <svg className="w-12 h-12 mx-auto text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <p className="text-gray-500 text-sm">Belum ada pekerjaan yang di-assign</p>
                 </div>
               </div>
             )}
@@ -852,13 +1189,13 @@ export default function TeamLeadDashboard() {
                   <input
                     type="radio"
                     name="status"
-                    value="Available"
-                    checked={statusFormData.status === 'Available'}
+                    value="AVAILABLE"
+                    checked={statusFormData.status === 'AVAILABLE'}
                     onChange={(e) => setStatusFormData({ ...statusFormData, status: e.target.value })}
                     className="mr-2"
                   />
                   <div>
-                    <p className="font-medium text-green-600">Available</p>
+                    <p className="font-medium text-green-600">AVAILABLE</p>
                     <p className="text-xs text-gray-500">Siap ditugaskan</p>
                   </div>
                 </label>
@@ -866,21 +1203,21 @@ export default function TeamLeadDashboard() {
                   <input
                     type="radio"
                     name="status"
-                    value="Unavailable"
-                    checked={statusFormData.status === 'Unavailable'}
+                    value="UNAVAILABLE"
+                    checked={statusFormData.status === 'UNAVAILABLE'}
                     onChange={(e) => setStatusFormData({ ...statusFormData, status: e.target.value })}
                     className="mr-2"
                   />
                   <div>
-                    <p className="font-medium text-gray-600">Unavailable</p>
+                    <p className="font-medium text-gray-600">UNAVAILABLE</p>
                     <p className="text-xs text-gray-500">Tidak tersedia</p>
                   </div>
                 </label>
               </div>
             </div>
 
-            {/* Unavailable Details (show only when Unavailable is selected) */}
-            {statusFormData.status === 'Unavailable' && (
+            {/* Unavailable Details (show only when UNAVAILABLE is selected) */}
+            {statusFormData.status === 'UNAVAILABLE' && (
               <div className="space-y-3 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
                 <div className="flex items-start gap-2">
                   <svg className="w-5 h-5 text-yellow-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -948,8 +1285,8 @@ export default function TeamLeadDashboard() {
               </div>
             )}
 
-            {/* Info untuk Available */}
-            {statusFormData.status === 'Available' && employeeToUpdate.status === 'Unavailable' && (
+            {/* Info untuk AVAILABLE */}
+            {statusFormData.status === 'AVAILABLE' && employeeToUpdate.status === 'UNAVAILABLE' && (
               <div className="p-3 bg-green-50 border border-green-200 rounded-md">
                 <p className="text-sm text-green-800">
                   <strong>Info:</strong> Karyawan akan kembali tersedia dan dapat ditugaskan ke pekerjaan.
@@ -980,6 +1317,152 @@ export default function TeamLeadDashboard() {
               >
                 Simpan Perubahan
               </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Job Detail Modal */}
+      {showJobDetailModal && selectedJob && (
+        <Modal
+          isOpen={showJobDetailModal}
+          onClose={() => {
+            setShowJobDetailModal(false);
+            setSelectedJob(null);
+          }}
+          title="Detail Pekerjaan"
+        >
+          <div className="space-y-4">
+            {/* Job Information */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Nama Pekerjaan
+                </label>
+                <p className="text-sm text-gray-900">{selectedJob.title}</p>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Jenis Pekerjaan
+                </label>
+                <Badge variant="info">{selectedJob.type}</Badge>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Tanggal Mulai
+                </label>
+                <p className="text-sm text-gray-900">{formatDate(selectedJob.start_date)}</p>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Tanggal Selesai
+                </label>
+                <p className="text-sm text-gray-900">{formatDate(selectedJob.end_date)}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Tunjangan Transport
+                </label>
+                <p className="text-sm text-gray-900">{formatCurrency(selectedJob.transport_allowance)}</p>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Estimasi Honorarium
+                </label>
+                <p className="text-sm text-gray-900">{formatCurrency(selectedJob.estimated_honorarium)}</p>
+              </div>
+            </div>
+
+            {selectedJob.honor_document_basis > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Honor Document Basis
+                </label>
+                <p className="text-sm text-gray-900">{formatCurrency(selectedJob.honor_document_basis)}</p>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Status Pekerjaan
+              </label>
+              {getStatusBadge(selectedJob.status)}
+            </div>
+
+            {/* Assigned Employees */}
+            <div className="border-t pt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-3">
+                Karyawan yang Ditugaskan ({selectedJob.job_assignments?.length || 0})
+              </label>
+              
+              {selectedJob.job_assignments && selectedJob.job_assignments.length > 0 ? (
+                <div className="space-y-2">
+                  {selectedJob.job_assignments.map((assignment) => (
+                    <div 
+                      key={assignment._id} 
+                      className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-cyan-100 flex items-center justify-center">
+                          <span className="text-cyan-700 font-semibold text-sm">
+                            {assignment.employee_id?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
+                          </span>
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">{assignment.employee_id?.name}</p>
+                          <p className="text-sm text-gray-500">
+                            {assignment.employee_id?.employee_type}
+                          </p>
+                        </div>
+                      </div>
+                      <Badge 
+                        variant={assignment.employee_id?.status === 'On_Project' ? 'warning' : 'success'}
+                      >
+                        {assignment.employee_id?.status}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 bg-gray-50 rounded-lg">
+                  <svg className="w-12 h-12 text-gray-400 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                  <p className="text-gray-500 text-sm">Belum ada karyawan yang ditugaskan</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4 border-t">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowJobDetailModal(false);
+                  setSelectedJob(null);
+                }}
+              >
+                Tutup
+              </Button>
+              {selectedJob.status !== 'COMPLETED' && (
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    setShowJobDetailModal(false);
+                    navigate(`/teamlead/jobs/${selectedJob._id}/select-employee`);
+                  }}
+                >
+                  Assign Karyawan
+                </Button>
+              )}
             </div>
           </div>
         </Modal>

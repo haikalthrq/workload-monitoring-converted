@@ -11,7 +11,7 @@ export const getJobs = async (req, res, next) => {
 
     // Build filter
     const filter = {};
-    if (status) filter.status = status;
+    // Note: status filter akan diaplikasikan setelah auto_status dihitung
     if (type) filter.type = type;
     if (search) filter.title = { $regex: search, $options: 'i' };
 
@@ -20,18 +20,25 @@ export const getJobs = async (req, res, next) => {
       .sort({ createdAt: -1 });
 
     // Get assignments for each job
-    const jobsWithAssignments = await Promise.all(
+    let jobsWithAssignments = await Promise.all(
       jobs.map(async (job) => {
         const assignments = await JobAssignment.find({
           job_id: job._id,
         }).populate('employee_id', 'name employee_type img_url');
 
+        const jobObj = job.toObject();
         return {
-          ...job.toObject(),
+          ...jobObj,
+          status: jobObj.auto_status, // Gunakan auto_status
           job_assignments: assignments,
         };
       })
     );
+
+    // Filter by status if provided (after auto_status calculation)
+    if (status) {
+      jobsWithAssignments = jobsWithAssignments.filter(job => job.status === status);
+    }
 
     res.status(200).json({
       success: true,
@@ -65,10 +72,12 @@ export const getJob = async (req, res, next) => {
       job_id: job._id,
     }).populate('employee_id');
 
+    const jobObj = job.toObject();
     res.status(200).json({
       success: true,
       data: {
-        ...job.toObject(),
+        ...jobObj,
+        status: jobObj.auto_status, // Gunakan auto_status
         job_assignments: assignments,
       },
     });
@@ -147,10 +156,10 @@ export const updateJob = async (req, res, next) => {
           (a) => a.job_id && a.job_id.status !== 'COMPLETED'
         );
 
-        // If no more active jobs, update status to Available
+        // If no more active jobs, update status to AVAILABLE
         if (activeJobs.length === 0) {
           await Employee.findByIdAndUpdate(assignment.employee_id, {
-            status: 'Available',
+            status: 'AVAILABLE',
           });
         }
       }
@@ -238,8 +247,8 @@ export const assignEmployees = async (req, res, next) => {
           throw new Error(`Employee with ID ${employee_id} not found`);
         }
 
-        // Prevent assigning Unavailable employees
-        if (employee.status === 'Unavailable') {
+        // Prevent assigning UNAVAILABLE employees
+        if (employee.status === 'UNAVAILABLE') {
           throw new Error(`Employee ${employee.name} is currently unavailable and cannot be assigned`);
         }
 
@@ -253,15 +262,15 @@ export const assignEmployees = async (req, res, next) => {
           return existingAssignment;
         }
 
-        // Create new assignment and update employee status to On_Project
+        // Create new assignment and update employee status to ON_PROJECT
         const assignment = await JobAssignment.create({
           job_id: job._id,
           employee_id,
         });
 
-        // Auto-update employee status to On_Project
+        // Auto-update employee status to ON_PROJECT
         await Employee.findByIdAndUpdate(employee_id, {
-          status: 'On_Project',
+          status: 'ON_PROJECT',
         });
 
         return assignment;
@@ -307,10 +316,10 @@ export const removeEmployeeAssignment = async (req, res, next) => {
       (a) => a.job_id && a.job_id.status !== 'COMPLETED'
     );
 
-    // If no more active jobs, update status to Available
+    // If no more active jobs, update status to AVAILABLE
     if (activeJobs.length === 0) {
       await Employee.findByIdAndUpdate(employeeId, {
-        status: 'Available',
+        status: 'AVAILABLE',
       });
     }
 
