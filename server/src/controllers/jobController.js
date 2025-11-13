@@ -189,6 +189,16 @@ export const deleteJob = async (req, res, next) => {
       });
     }
 
+    // Check auto_status for protection
+    const currentStatus = job.auto_status;
+    
+    if (currentStatus === 'FINALIZED' || currentStatus === 'ONGOING' || currentStatus === 'COMPLETED') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete job with status: ${currentStatus}. Only DRAFT jobs can be deleted.`,
+      });
+    }
+
     // Check if user is the creator (optional check since created_by can be null)
     if (
       job.created_by && 
@@ -235,6 +245,15 @@ export const assignEmployees = async (req, res, next) => {
       return res.status(404).json({
         success: false,
         message: 'Job not found',
+      });
+    }
+
+    // Check if job is still in DRAFT status (only DRAFT jobs can have employees assigned)
+    const currentStatus = job.auto_status;
+    if (currentStatus !== 'DRAFT') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot assign employees to a ${currentStatus} job. Only DRAFT jobs can have employees assigned.`,
       });
     }
 
@@ -293,6 +312,25 @@ export const assignEmployees = async (req, res, next) => {
 export const removeEmployeeAssignment = async (req, res, next) => {
   try {
     const { jobId, employeeId } = req.params;
+
+    // Check if job is finalized
+    const job = await Job.findById(jobId);
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        message: 'Job not found',
+      });
+    }
+
+    // Check auto_status
+    const currentStatus = job.auto_status;
+    
+    if (currentStatus === 'FINALIZED' || currentStatus === 'ONGOING' || currentStatus === 'COMPLETED') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot remove employee from job with status: ${currentStatus}`,
+      });
+    }
 
     const assignment = await JobAssignment.findOneAndDelete({
       job_id: jobId,
@@ -355,11 +393,56 @@ export const finalizeJob = async (req, res, next) => {
     }
 
     job.status = 'FINALIZED';
+    job.is_finalized = true;
+    job.finalized_at = new Date();
     await job.save();
 
     res.status(200).json({
       success: true,
       message: 'Job finalized successfully',
+      data: job,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Complete job (change status to COMPLETED)
+// @route   PUT /api/jobs/:id/complete
+// @access  Private
+export const completeJob = async (req, res, next) => {
+  try {
+    const job = await Job.findById(req.params.id);
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        message: 'Job not found',
+      });
+    }
+
+    // Check auto_status instead of status
+    const currentStatus = job.auto_status;
+    
+    if (currentStatus !== 'ONGOING') {
+      return res.status(400).json({
+        success: false,
+        message: `Only ONGOING jobs can be marked as completed. Current status: ${currentStatus}`,
+      });
+    }
+
+    // Sync database status with auto_status if needed
+    if (job.status === 'FINALIZED' && currentStatus === 'ONGOING') {
+      job.status = 'ONGOING';
+    }
+
+    // Now mark as completed
+    job.status = 'COMPLETED';
+    await job.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Job marked as completed successfully',
       data: job,
     });
   } catch (error) {

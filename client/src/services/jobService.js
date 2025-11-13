@@ -31,6 +31,12 @@ export const jobService = {
     return response.data;
   },
 
+  // Delete job (alias for delete)
+  deleteJob: async (id) => {
+    const response = await api.delete(`/jobs/${id}`);
+    return response.data;
+  },
+
   // Assign employees to job
   assignEmployees: async (jobId, employeeIds) => {
     const response = await api.post(`/jobs/${jobId}/assign`, { employee_ids: employeeIds });
@@ -40,6 +46,24 @@ export const jobService = {
   // Unassign employee from job
   unassignEmployee: async (jobId, employeeId) => {
     const response = await api.delete(`/jobs/${jobId}/unassign/${employeeId}`);
+    return response.data;
+  },
+
+  // Remove employee from job (alias for unassign)
+  removeEmployeeFromJob: async (jobId, employeeId) => {
+    const response = await api.delete(`/jobs/${jobId}/assign/${employeeId}`);
+    return response.data;
+  },
+
+  // Finalize job
+  finalizeJob: async (jobId) => {
+    const response = await api.put(`/jobs/${jobId}/finalize`);
+    return response.data;
+  },
+
+  // Complete job
+  completeJob: async (jobId) => {
+    const response = await api.put(`/jobs/${jobId}/complete`);
     return response.data;
   },
 };

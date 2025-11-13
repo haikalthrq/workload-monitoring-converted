@@ -8,6 +8,7 @@ import {
   assignEmployees,
   removeEmployeeAssignment,
   finalizeJob,
+  completeJob,
   getJobStats,
 } from '../controllers/jobController.js';
 import { protect } from '../middleware/auth.js';
@@ -28,5 +29,7 @@ router.route('/:id/assign').post(assignEmployees);
 router.route('/:jobId/assign/:employeeId').delete(removeEmployeeAssignment);
 
 router.route('/:id/finalize').put(finalizeJob);
+
+router.route('/:id/complete').put(completeJob);
 
 export default router;

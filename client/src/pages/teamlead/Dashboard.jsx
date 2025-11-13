@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Navbar } from '../../components/Navbar';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -7,11 +7,15 @@ import { Table } from '../../components/ui/Table';
 import { Badge } from '../../components/ui/Badge';
 import { Loading } from '../../components/ui/Loading';
 import { Modal } from '../../components/ui/Modal';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
+import { AlertDialog } from '../../components/ui/AlertDialog';
+import { Pagination } from '../../components/ui/Pagination';
 import { jobService } from '../../services/jobService';
 import { employeeService } from '../../services/employeeService';
 
 export default function TeamLeadDashboard() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [jobs, setJobs] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -20,6 +24,11 @@ export default function TeamLeadDashboard() {
   const [showModal, setShowModal] = useState(false);
   const [showSalaryModal, setShowSalaryModal] = useState(false);
   const [showJobDetailModal, setShowJobDetailModal] = useState(false);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [showAlertDialog, setShowAlertDialog] = useState(false);
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [alertConfig, setAlertConfig] = useState({ title: '', description: '', variant: 'success' });
+  const [actionLoading, setActionLoading] = useState(false);
   const [viewMode, setViewMode] = useState('jobs'); // 'jobs' or 'employees'
   const [filter, setFilter] = useState('');
   const [jobTypeFilter, setJobTypeFilter] = useState('');
@@ -37,6 +46,36 @@ export default function TeamLeadDashboard() {
   });
   const [sortedEmployees, setSortedEmployees] = useState([]);
   const [sortedJobs, setSortedJobs] = useState([]);
+  
+  // Pagination states
+  const [currentJobPage, setCurrentJobPage] = useState(1);
+  const [currentEmployeePage, setCurrentEmployeePage] = useState(1);
+  const itemsPerPage = 30;
+
+  // Check for redirect error messages
+  useEffect(() => {
+    if (location.state?.error) {
+      setAlertConfig({
+        title: 'Peringatan',
+        description: location.state.error,
+        variant: 'danger'
+      });
+      setShowAlertDialog(true);
+      
+      // Clear the state
+      navigate(location.pathname, { replace: true, state: {} });
+    } else if (location.state?.success) {
+      setAlertConfig({
+        title: 'Berhasil',
+        description: location.state.success,
+        variant: 'success'
+      });
+      setShowAlertDialog(true);
+      
+      // Clear the state
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location, navigate]);
 
   useEffect(() => {
     if (viewMode === 'jobs') {
@@ -99,9 +138,16 @@ export default function TeamLeadDashboard() {
     }
   };
 
+  const getEmployeeJobCount = (employeeName) => {
+    if (!salaryData || !salaryData.details) return 0;
+    const employeeJobs = salaryData.details.filter(d => d.employeeName === employeeName);
+    return employeeJobs.length;
+  };
+
   const getStatusBadge = (status) => {
     const variants = {
-      PLANNED: 'info',
+      DRAFT: 'default',
+      FINALIZED: 'info',
       ONGOING: 'warning',
       COMPLETED: 'success',
     };
@@ -134,6 +180,190 @@ export default function TeamLeadDashboard() {
     }
   };
 
+  // Job Management Functions
+  const handleDeleteJob = () => {
+    setConfirmAction({
+      type: 'delete',
+      title: 'Hapus Pekerjaan',
+      description: 'Apakah Anda yakin ingin menghapus pekerjaan ini? Tindakan ini tidak dapat dibatalkan.',
+      variant: 'danger',
+      confirmText: 'Hapus',
+      action: async () => {
+        try {
+          setActionLoading(true);
+          await jobService.deleteJob(selectedJob._id);
+          
+          // Refresh data
+          await fetchJobs();
+          
+          // Close modals
+          setShowModal(false);
+          setShowJobDetailModal(false);
+          setSelectedJob(null);
+          setShowConfirmDialog(false);
+          
+          // Show success alert
+          setAlertConfig({
+            title: 'Berhasil',
+            description: 'Pekerjaan berhasil dihapus',
+            variant: 'success'
+          });
+          setShowAlertDialog(true);
+        } catch (error) {
+          console.error('Error deleting job:', error);
+          setShowConfirmDialog(false);
+          setAlertConfig({
+            title: 'Gagal',
+            description: error.response?.data?.message || 'Gagal menghapus pekerjaan',
+            variant: 'error'
+          });
+          setShowAlertDialog(true);
+        } finally {
+          setActionLoading(false);
+        }
+      }
+    });
+    setShowConfirmDialog(true);
+  };
+
+  const handleRemoveEmployee = (employeeId, employeeName) => {
+    setConfirmAction({
+      type: 'remove',
+      title: 'Remove Karyawan',
+      description: `Apakah Anda yakin ingin menghapus ${employeeName} dari pekerjaan ini?`,
+      variant: 'warning',
+      confirmText: 'Remove',
+      action: async () => {
+        try {
+          setActionLoading(true);
+          await jobService.removeEmployeeFromJob(selectedJob._id, employeeId);
+          
+          // Refresh job details
+          const response = await jobService.getById(selectedJob._id);
+          setSelectedJob(response.data);
+          
+          // Refresh data
+          await fetchJobs();
+          
+          setShowConfirmDialog(false);
+          
+          // Show success alert
+          setAlertConfig({
+            title: 'Berhasil',
+            description: 'Karyawan berhasil dihapus dari pekerjaan',
+            variant: 'success'
+          });
+          setShowAlertDialog(true);
+        } catch (error) {
+          console.error('Error removing employee:', error);
+          setShowConfirmDialog(false);
+          setAlertConfig({
+            title: 'Gagal',
+            description: error.response?.data?.message || 'Gagal menghapus karyawan',
+            variant: 'error'
+          });
+          setShowAlertDialog(true);
+        } finally {
+          setActionLoading(false);
+        }
+      }
+    });
+    setShowConfirmDialog(true);
+  };
+
+  const handleFinalizeJob = () => {
+    setConfirmAction({
+      type: 'finalize',
+      title: 'Finalize Pekerjaan',
+      description: 'Apakah Anda yakin ingin memfinalisasi pekerjaan ini? Setelah difinalisasi, Anda tidak dapat menghapus pekerjaan atau menghapus karyawan dari pekerjaan ini.',
+      variant: 'warning',
+      confirmText: 'Finalize',
+      action: async () => {
+        try {
+          setActionLoading(true);
+          await jobService.finalizeJob(selectedJob._id);
+          
+          // Refresh job details
+          const response = await jobService.getById(selectedJob._id);
+          setSelectedJob(response.data);
+          
+          // Refresh data
+          await fetchJobs();
+          
+          setShowConfirmDialog(false);
+          
+          // Show success alert
+          setAlertConfig({
+            title: 'Berhasil',
+            description: 'Pekerjaan berhasil difinalisasi',
+            description: 'Pekerjaan berhasil difinalisasi',
+            variant: 'success'
+          });
+          setShowAlertDialog(true);
+        } catch (error) {
+          console.error('Error finalizing job:', error);
+          setShowConfirmDialog(false);
+          setAlertConfig({
+            title: 'Gagal',
+            description: error.response?.data?.message || 'Gagal memfinalisasi pekerjaan',
+            variant: 'error'
+          });
+          setShowAlertDialog(true);
+        } finally {
+          setActionLoading(false);
+        }
+      }
+    });
+    setShowConfirmDialog(true);
+  };
+
+  const handleCompleteJob = () => {
+    setConfirmAction({
+      type: 'complete',
+      title: 'Tandai Pekerjaan Selesai',
+      description: 'Apakah Anda yakin ingin menandai pekerjaan ini sebagai selesai?',
+      variant: 'info',
+      confirmText: 'Tandai Selesai',
+      action: async () => {
+        try {
+          setActionLoading(true);
+          await jobService.completeJob(selectedJob._id);
+          
+          // Refresh job details
+          const response = await jobService.getById(selectedJob._id);
+          setSelectedJob(response.data);
+          
+          // Refresh data
+          await fetchJobs();
+          
+          setShowConfirmDialog(false);
+          
+          // Show success alert
+          setAlertConfig({
+            title: 'Berhasil',
+            description: 'Pekerjaan berhasil ditandai selesai',
+            title: 'Berhasil',
+            description: 'Pekerjaan berhasil ditandai selesai',
+            variant: 'success'
+          });
+          setShowAlertDialog(true);
+        } catch (error) {
+          console.error('Error completing job:', error);
+          setShowConfirmDialog(false);
+          setAlertConfig({
+            title: 'Gagal',
+            description: error.response?.data?.message || 'Gagal menandai pekerjaan selesai',
+            variant: 'error'
+          });
+          setShowAlertDialog(true);
+        } finally {
+          setActionLoading(false);
+        }
+      }
+    });
+    setShowConfirmDialog(true);
+  };
+
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('id-ID', {
       style: 'currency',
@@ -150,10 +380,30 @@ export default function TeamLeadDashboard() {
     });
   };
 
+  const isJobOverdue = (job) => {
+    if (job.status !== 'ONGOING') return false;
+    const now = new Date();
+    const endDate = new Date(job.end_date);
+    now.setHours(0, 0, 0, 0);
+    endDate.setHours(0, 0, 0, 0);
+    return now > endDate;
+  };
+
+  const getDaysOverdue = (endDate) => {
+    const now = new Date();
+    const end = new Date(endDate);
+    now.setHours(0, 0, 0, 0);
+    end.setHours(0, 0, 0, 0);
+    const diffTime = now - end;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
+  };
+
   // Calculate statistics
   const stats = {
     total: jobs.length,
-    planned: jobs.filter(j => j.status === 'PLANNED').length,
+    draft: jobs.filter(j => j.status === 'DRAFT').length,
+    finalized: jobs.filter(j => j.status === 'FINALIZED').length,
     ongoing: jobs.filter(j => j.status === 'ONGOING').length,
     completed: jobs.filter(j => j.status === 'COMPLETED').length,
   };
@@ -190,6 +440,8 @@ export default function TeamLeadDashboard() {
       0: 'name',
       1: 'employee_type',
       2: 'status',
+      // 3: 'pengalaman' - skip, no sort for experiences
+      4: 'job_count', // Jumlah Job - special handling
     };
     
     const field = fieldMap[headerIndex];
@@ -199,6 +451,19 @@ export default function TeamLeadDashboard() {
     }
     
     const sorted = [...filteredEmployees].sort((a, b) => {
+      // Special handling for job count
+      if (field === 'job_count') {
+        const aCount = getEmployeeJobCount(a.name);
+        const bCount = getEmployeeJobCount(b.name);
+        
+        if (direction === 'asc') {
+          return aCount - bCount;
+        } else {
+          return bCount - aCount;
+        }
+      }
+      
+      // Regular field sorting
       let aVal = a[field] || '';
       let bVal = b[field] || '';
       
@@ -268,11 +533,33 @@ export default function TeamLeadDashboard() {
     setEmployeeTypeFilter('');
     setExperienceFilter('');
     setSearchQuery('');
+    setCurrentJobPage(1);
+    setCurrentEmployeePage(1);
     if (mode === 'jobs') {
       setSelectedEmployee(null);
     } else {
       setSelectedJob(null);
     }
+  };
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentJobPage(1);
+  }, [filter, jobTypeFilter, searchQuery]);
+
+  useEffect(() => {
+    setCurrentEmployeePage(1);
+  }, [employeeTypeFilter, experienceFilter, searchQuery]);
+
+  // Pagination helpers
+  const getPaginatedData = (data, currentPage) => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return data.slice(startIndex, endIndex);
+  };
+
+  const getTotalPages = (dataLength) => {
+    return Math.ceil(dataLength / itemsPerPage);
   };
 
   const handleStatusChange = (employee) => {
@@ -379,7 +666,7 @@ export default function TeamLeadDashboard() {
 
         {/* Statistics Cards */}
         {viewMode === 'jobs' ? (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
             <Card className="border-none">
               <div className="flex flex-col px-5 py-4">
                 <h3 className="text-4xl font-bold text-gray-900">{stats.total}</h3>
@@ -387,10 +674,17 @@ export default function TeamLeadDashboard() {
               </div>
             </Card>
 
+            <Card className="border-none bg-gradient-to-br from-gray-50 to-gray-100">
+              <div className="flex flex-col px-5 py-4">
+                <h3 className="text-4xl font-bold text-gray-700">{stats.draft}</h3>
+                <p className="text-gray-600 mt-1 font-medium">DRAFT</p>
+              </div>
+            </Card>
+
             <Card className="border-none bg-gradient-to-br from-blue-50 to-blue-100">
               <div className="flex flex-col px-5 py-4">
-                <h3 className="text-4xl font-bold text-blue-700">{stats.planned}</h3>
-                <p className="text-blue-600 mt-1 font-medium">PLANNED</p>
+                <h3 className="text-4xl font-bold text-blue-700">{stats.finalized}</h3>
+                <p className="text-blue-600 mt-1 font-medium">FINALIZED</p>
               </div>
             </Card>
 
@@ -522,10 +816,17 @@ export default function TeamLeadDashboard() {
                 </Button>
                 <Button 
                   size="sm" 
-                  variant={filter === 'PLANNED' ? 'primary' : 'ghost'}
-                  onClick={() => setFilter('PLANNED')}
+                  variant={filter === 'DRAFT' ? 'primary' : 'ghost'}
+                  onClick={() => setFilter('DRAFT')}
                 >
-                  Planned
+                  Draft
+                </Button>
+                <Button 
+                  size="sm" 
+                  variant={filter === 'FINALIZED' ? 'primary' : 'ghost'}
+                  onClick={() => setFilter('FINALIZED')}
+                >
+                  Finalized
                 </Button>
                 <Button 
                   size="sm" 
@@ -547,12 +848,13 @@ export default function TeamLeadDashboard() {
             {loading ? (
               <Loading className="py-8" />
             ) : (
-              <Table
-                headers={['Nama Pekerjaan', 'Jenis', 'Tanggal Mulai', 'Tanggal Selesai', 'Status', 'Aksi']}
-                data={sortedJobs.length > 0 ? sortedJobs : jobs}
-                sortable={true}
-                onSort={handleJobSort}
-                renderRow={(job) => (
+              <>
+                <Table
+                  headers={['Nama Pekerjaan', 'Jenis', 'Tanggal Mulai', 'Tanggal Selesai', 'Status', 'Aksi']}
+                  data={getPaginatedData(sortedJobs.length > 0 ? sortedJobs : jobs, currentJobPage)}
+                  sortable={true}
+                  onSort={handleJobSort}
+                  renderRow={(job) => (
                   <tr key={job._id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="font-medium text-gray-900">{job.title}</div>
@@ -567,21 +869,55 @@ export default function TeamLeadDashboard() {
                       {formatDate(job.end_date)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {getStatusBadge(job.status)}
+                      <div className="flex items-center gap-2">
+                        {getStatusBadge(job.status)}
+                        {isJobOverdue(job) && (
+                          <div className="flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded-md border border-red-300 animate-pulse">
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                            </svg>
+                            <span className="text-xs font-semibold">+{getDaysOverdue(job.end_date)} hari</span>
+                          </div>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <Button 
-                        size="sm" 
-                        variant="outline"
-                        onClick={() => handleViewJobDetails(job._id)}
-                      >
-                        Detail
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        {isJobOverdue(job) && (
+                          <div className="relative group">
+                            <div className="w-8 h-8 bg-red-500 rounded-full flex items-center justify-center animate-pulse cursor-pointer hover:bg-red-600 transition-colors">
+                              <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                              </svg>
+                            </div>
+                            {/* Tooltip */}
+                            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                              Melewati deadline {getDaysOverdue(job.end_date)} hari
+                              <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+                            </div>
+                          </div>
+                        )}
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={() => handleViewJobDetails(job._id)}
+                        >
+                          Detail
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 )}
                 emptyMessage="Belum ada pekerjaan"
               />
+              <Pagination
+                currentPage={currentJobPage}
+                totalPages={getTotalPages((sortedJobs.length > 0 ? sortedJobs : jobs).length)}
+                onPageChange={setCurrentJobPage}
+                itemsPerPage={itemsPerPage}
+                totalItems={(sortedJobs.length > 0 ? sortedJobs : jobs).length}
+              />
+              </>
             )}
           </Card>
         ) : (
@@ -701,12 +1037,13 @@ export default function TeamLeadDashboard() {
             {loading ? (
               <Loading className="py-8" />
             ) : (
-              <Table
-                headers={['Nama', 'Tipe', 'Status', 'Pengalaman', 'Aksi']}
-                data={sortedEmployees.length > 0 ? sortedEmployees : filteredEmployees}
-                sortable={true}
-                onSort={handleEmployeeSort}
-                renderRow={(employee) => (
+              <>
+                <Table
+                  headers={['Nama', 'Tipe', 'Status', 'Pengalaman', 'Jumlah Job', 'Aksi']}
+                  data={getPaginatedData(sortedEmployees.length > 0 ? sortedEmployees : filteredEmployees, currentEmployeePage)}
+                  sortable={true}
+                  onSort={handleEmployeeSort}
+                  renderRow={(employee) => (
                   <tr key={employee._id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="font-medium text-gray-900">{employee.name}</div>
@@ -755,6 +1092,11 @@ export default function TeamLeadDashboard() {
                         )}
                       </div>
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
+                      <span className="text-sm font-medium text-gray-900">
+                        {getEmployeeJobCount(employee.name)}
+                      </span>
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <div className="flex gap-2">
                         <Button 
@@ -779,6 +1121,14 @@ export default function TeamLeadDashboard() {
                 )}
                 emptyMessage="Belum ada karyawan"
               />
+              <Pagination
+                currentPage={currentEmployeePage}
+                totalPages={getTotalPages((sortedEmployees.length > 0 ? sortedEmployees : filteredEmployees).length)}
+                onPageChange={setCurrentEmployeePage}
+                itemsPerPage={itemsPerPage}
+                totalItems={(sortedEmployees.length > 0 ? sortedEmployees : filteredEmployees).length}
+              />
+              </>
             )}
           </Card>
         )}
@@ -831,15 +1181,31 @@ export default function TeamLeadDashboard() {
             )}
 
             <div className="pt-4 border-t">
-              <h4 className="font-semibold mb-2">Karyawan yang Ditugaskan</h4>
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-semibold">Karyawan yang Ditugaskan</h4>
+                {selectedJob.status === 'DRAFT' && selectedJob.employees && selectedJob.employees.length > 0 && (
+                  <span className="text-xs text-gray-500">Click × untuk remove karyawan</span>
+                )}
+              </div>
               {selectedJob.employees && selectedJob.employees.length > 0 ? (
                 <div className="space-y-2">
                   {selectedJob.employees.map((emp, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                      <span>{emp.name}</span>
-                      <Badge variant={emp.employee_type === 'ORGANIK' ? 'indigo' : 'purple'}>
-                        {emp.employee_type}
-                      </Badge>
+                    <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 rounded hover:bg-gray-100 transition-colors">
+                      <div className="flex items-center gap-2">
+                        <span>{emp.name}</span>
+                        <Badge variant={emp.employee_type === 'ORGANIK' ? 'indigo' : 'purple'}>
+                          {emp.employee_type}
+                        </Badge>
+                      </div>
+                      {selectedJob.status === 'DRAFT' && (
+                        <button
+                          onClick={() => handleRemoveEmployee(emp._id, emp.name)}
+                          className="text-red-600 hover:text-red-800 font-bold text-lg px-2"
+                          title="Remove karyawan dari pekerjaan"
+                        >
+                          ×
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -847,6 +1213,48 @@ export default function TeamLeadDashboard() {
                 <p className="text-gray-500 text-sm">Belum ada karyawan yang ditugaskan</p>
               )}
             </div>
+
+            {/* Action Buttons */}
+            {selectedJob.status === 'DRAFT' && (
+              <div className="pt-4 border-t flex justify-between gap-3">
+                <Button
+                  variant="danger"
+                  onClick={handleDeleteJob}
+                  className="flex-1"
+                >
+                  Hapus Pekerjaan
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={handleFinalizeJob}
+                  className="flex-1"
+                  disabled={!selectedJob.employees || selectedJob.employees.length === 0}
+                >
+                  Finalize Job
+                </Button>
+              </div>
+            )}
+
+            {selectedJob.status === 'FINALIZED' && (
+              <div className="pt-4 border-t">
+                <div className="bg-blue-50 border border-blue-200 rounded-md p-3 flex items-start gap-2">
+                  <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <p className="text-sm font-medium text-blue-900">Job Sudah Difinalisasi</p>
+                    <p className="text-xs text-blue-700 mt-1">
+                      Job ini sudah tidak dapat dihapus atau diubah assignment karyawannya.
+                      {selectedJob.finalized_at && (
+                        <span className="block mt-1">
+                          Difinalisasi pada: {formatDate(selectedJob.finalized_at)}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </Modal>
       )}
@@ -1400,16 +1808,30 @@ export default function TeamLeadDashboard() {
 
             {/* Assigned Employees */}
             <div className="border-t pt-4">
-              <label className="block text-sm font-medium text-gray-700 mb-3">
-                Karyawan yang Ditugaskan ({selectedJob.job_assignments?.length || 0})
-              </label>
+              <div className="flex items-center justify-between mb-3">
+                <label className="block text-sm font-medium text-gray-700">
+                  Karyawan yang Ditugaskan ({selectedJob.job_assignments?.length || 0})
+                </label>
+                {selectedJob.auto_status === 'DRAFT' && (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => {
+                      setShowJobDetailModal(false);
+                      navigate(`/teamlead/jobs/${selectedJob._id}/select-employee`);
+                    }}
+                  >
+                    + Assign Karyawan
+                  </Button>
+                )}
+              </div>
               
               {selectedJob.job_assignments && selectedJob.job_assignments.length > 0 ? (
                 <div className="space-y-2">
                   {selectedJob.job_assignments.map((assignment) => (
                     <div 
                       key={assignment._id} 
-                      className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                      className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                     >
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-cyan-100 flex items-center justify-center">
@@ -1424,11 +1846,25 @@ export default function TeamLeadDashboard() {
                           </p>
                         </div>
                       </div>
-                      <Badge 
-                        variant={assignment.employee_id?.status === 'On_Project' ? 'warning' : 'success'}
-                      >
-                        {assignment.employee_id?.status}
-                      </Badge>
+                      <div className="flex items-center gap-3">
+                        <Badge 
+                          variant={assignment.employee_id?.status === 'On_Project' ? 'warning' : 'success'}
+                        >
+                          {assignment.employee_id?.status}
+                        </Badge>
+                        {selectedJob.status === 'DRAFT' && (
+                          <button
+                            onClick={() => handleRemoveEmployee(assignment.employee_id?._id, assignment.employee_id?.name)}
+                            className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-white bg-red-500 hover:bg-red-600 rounded-md transition-colors shadow-sm"
+                            title="Remove karyawan dari pekerjaan"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                            Remove
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1437,12 +1873,101 @@ export default function TeamLeadDashboard() {
                   <svg className="w-12 h-12 text-gray-400 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                   </svg>
-                  <p className="text-gray-500 text-sm">Belum ada karyawan yang ditugaskan</p>
+                  <p className="text-gray-500 text-sm mb-3">Belum ada karyawan yang ditugaskan</p>
+                  {(selectedJob.status === 'DRAFT' || selectedJob.status === 'FINALIZED') && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => {
+                        setShowJobDetailModal(false);
+                        navigate(`/teamlead/jobs/${selectedJob._id}/select-employee`);
+                      }}
+                    >
+                      + Tambah Karyawan
+                    </Button>
+                  )}
                 </div>
               )}
             </div>
 
-            <div className="flex justify-end gap-2 pt-4 border-t">
+            {/* Action Buttons for DRAFT */}
+            {selectedJob.status === 'DRAFT' && (
+              <div className="border-t pt-4">
+                <div className="flex gap-3 mb-3">
+                  <Button
+                    variant="danger"
+                    onClick={handleDeleteJob}
+                    className="flex-1"
+                  >
+                    Hapus Pekerjaan
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={handleFinalizeJob}
+                    className="flex-1"
+                    disabled={!selectedJob.job_assignments || selectedJob.job_assignments.length === 0}
+                  >
+                    Finalize Job
+                  </Button>
+                </div>
+                {(!selectedJob.job_assignments || selectedJob.job_assignments.length === 0) && (
+                  <p className="text-xs text-amber-600 text-center">
+                    Tambahkan karyawan terlebih dahulu sebelum finalize
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Action Buttons for ONGOING */}
+            {selectedJob.status === 'ONGOING' && (
+              <div className="border-t pt-4">
+                {isJobOverdue(selectedJob) && (
+                  <div className="mb-3 bg-red-50 border-2 border-red-300 rounded-md p-3 flex items-start gap-2 animate-pulse">
+                    <svg className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                    <div className="flex-1">
+                      <p className="text-sm font-bold text-red-900">⚠️ Pekerjaan Melewati Deadline!</p>
+                      <p className="text-xs text-red-700 mt-1">
+                        Pekerjaan ini sudah melewati tanggal selesai <strong>{getDaysOverdue(selectedJob.end_date)} hari</strong> yang lalu.
+                        Segera tandai sebagai selesai atau periksa progres pekerjaan.
+                      </p>
+                    </div>
+                  </div>
+                )}
+                <Button
+                  variant="primary"
+                  onClick={handleCompleteJob}
+                  className="w-full"
+                >
+                  ✓ Tandai Pekerjaan Selesai
+                </Button>
+              </div>
+            )}
+
+            {/* Info box for FINALIZED jobs */}
+            {selectedJob.status === 'FINALIZED' && (
+              <div className="border-t pt-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-md p-3 flex items-start gap-2">
+                  <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <p className="text-sm font-medium text-blue-900">Job Sudah Difinalisasi</p>
+                    <p className="text-xs text-blue-700 mt-1">
+                      Job ini sudah tidak dapat dihapus atau diubah assignment karyawannya.
+                      {selectedJob.finalized_at && (
+                        <span className="block mt-1">
+                          Difinalisasi pada: {formatDate(selectedJob.finalized_at)}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end pt-4 border-t">
               <Button
                 variant="outline"
                 onClick={() => {
@@ -1452,21 +1977,36 @@ export default function TeamLeadDashboard() {
               >
                 Tutup
               </Button>
-              {selectedJob.status !== 'COMPLETED' && (
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    setShowJobDetailModal(false);
-                    navigate(`/teamlead/jobs/${selectedJob._id}/select-employee`);
-                  }}
-                >
-                  Assign Karyawan
-                </Button>
-              )}
             </div>
           </div>
         </Modal>
       )}
+
+      {/* Confirmation Dialog */}
+      {confirmAction && (
+        <ConfirmDialog
+          isOpen={showConfirmDialog}
+          onClose={() => {
+            setShowConfirmDialog(false);
+            setConfirmAction(null);
+          }}
+          onConfirm={confirmAction.action}
+          title={confirmAction.title}
+          description={confirmAction.description}
+          variant={confirmAction.variant}
+          confirmText={confirmAction.confirmText}
+          isLoading={actionLoading}
+        />
+      )}
+
+      {/* Alert Dialog */}
+      <AlertDialog
+        isOpen={showAlertDialog}
+        onClose={() => setShowAlertDialog(false)}
+        title={alertConfig.title}
+        description={alertConfig.description}
+        variant={alertConfig.variant}
+      />
     </div>
   );
 }

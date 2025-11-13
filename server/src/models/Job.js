@@ -34,8 +34,16 @@ const jobSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['PLANNED', 'ONGOING', 'COMPLETED'],
-      default: 'PLANNED',
+      enum: ['DRAFT', 'FINALIZED', 'ONGOING', 'COMPLETED'],
+      default: 'DRAFT',
+    },
+    is_finalized: {
+      type: Boolean,
+      default: false,
+    },
+    finalized_at: {
+      type: Date,
+      default: null,
     },
     created_by: {
       type: mongoose.Schema.Types.ObjectId,
@@ -52,11 +60,6 @@ const jobSchema = new mongoose.Schema(
 
 // Virtual field untuk menghitung status otomatis berdasarkan tanggal
 jobSchema.virtual('auto_status').get(function() {
-  // Jika sudah ditandai COMPLETED manual, tetap COMPLETED
-  if (this.status === 'COMPLETED') {
-    return 'COMPLETED';
-  }
-
   const now = new Date();
   const startDate = new Date(this.start_date);
   const endDate = new Date(this.end_date);
@@ -66,13 +69,48 @@ jobSchema.virtual('auto_status').get(function() {
   startDate.setHours(0, 0, 0, 0);
   endDate.setHours(0, 0, 0, 0);
 
-  if (now < startDate) {
-    return 'PLANNED'; // Belum dimulai
-  } else if (now >= startDate && now <= endDate) {
-    return 'ONGOING'; // Sedang berjalan
-  } else {
-    return 'COMPLETED'; // Sudah lewat tanggal selesai
+  // Jika sudah COMPLETED, tetap COMPLETED (tidak auto-change)
+  if (this.status === 'COMPLETED') {
+    return 'COMPLETED';
   }
+
+  // Jika DRAFT, tetap DRAFT (tidak auto-change)
+  if (this.status === 'DRAFT') {
+    return 'DRAFT';
+  }
+
+  // Jika FINALIZED dan sudah mencapai/melewati tanggal mulai, auto menjadi ONGOING
+  if (this.status === 'FINALIZED' && now >= startDate) {
+    return 'ONGOING';
+  }
+
+  // Jika FINALIZED tapi belum tanggal mulai, tetap FINALIZED
+  if (this.status === 'FINALIZED') {
+    return 'FINALIZED';
+  }
+
+  // Jika ONGOING, tetap ONGOING (harus manual ke COMPLETED)
+  if (this.status === 'ONGOING') {
+    return 'ONGOING';
+  }
+
+  // Fallback: return status asli
+  return this.status;
+});
+
+// Virtual field untuk cek apakah job sudah melewati deadline
+jobSchema.virtual('is_overdue').get(function() {
+  if (this.status !== 'ONGOING') return false;
+  
+  const now = new Date();
+  const endDate = new Date(this.end_date);
+  
+  // Reset waktu ke 00:00:00
+  now.setHours(0, 0, 0, 0);
+  endDate.setHours(0, 0, 0, 0);
+  
+  // Jika sudah melewati tanggal selesai
+  return now > endDate;
 });
 
 // Indexes
